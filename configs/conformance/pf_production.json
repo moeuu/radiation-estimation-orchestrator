@@ -1,0 +1,21 @@
+{
+  "provider": "particle_filter",
+  "repository_path": "../../../Rotating-shield-particle-filter",
+  "revision": "3c2d4ff2bdce372bd02f0def3f691e33f5baed4e",
+  "revision_type": "commit",
+  "require_clean": true,
+  "timeout_s": 600,
+  "command": [
+    "uv",
+    "run",
+    "--project",
+    "{repository}",
+    "python",
+    "-m",
+    "pf.forward_response_conformance",
+    "--fixture",
+    "{config}",
+    "--output",
+    "{output_dir}"
+  ]
+}

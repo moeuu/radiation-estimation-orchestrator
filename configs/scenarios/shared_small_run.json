@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "scenario_id": "shared-small-run-v1",
+  "purpose": "Contract smoke: same immutable hand-authored observations for pure PF, count MLE, and spectral MLE; not a scientific accuracy dataset.",
+  "measurement_log": "../../fixtures/shared_small_run/measurement_log",
+  "evaluation_truth": "../../fixtures/shared_small_run/evaluation/truth.json",
+  "fixed_design": {
+    "station_count": 4,
+    "records_per_station": 3,
+    "total_records": 12,
+    "isotopes": ["Cs-137", "Co-60", "Eu-154"],
+    "raw_spectrum_shared": true,
+    "production_line_model_shared": true,
+    "shield_program_shared": true,
+    "dwell_time_shared": true
+  },
+  "observation_generation": "hand_authored_counts_with_production_line_allocation",
+  "scientific_accuracy_benchmark": false,
+  "truth_is_evaluation_only": true
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/mle-snapshot-v1.schema.json",
+  "title": "Cutoff-bound surface-MLE snapshot v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "estimator_family",
+    "estimator_variant",
+    "data_cutoff_step",
+    "data_cutoff_station",
+    "covered_step_ids",
+    "measurement_log_sha256",
+    "mle_result_sha256",
+    "clusters",
+    "fit_diagnostics",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "snapshot_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "estimator_family": {"const": "surface_mle"},
+    "estimator_variant": {"enum": ["count", "spectral"]},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "data_cutoff_station": {"type": "integer", "minimum": 0},
+    "covered_step_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "mle_result_sha256": {"$ref": "#/$defs/sha256"},
+    "clusters": {"type": "array", "items": {"type": "object"}},
+    "fit_diagnostics": {"type": "object"},
+    "provenance": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

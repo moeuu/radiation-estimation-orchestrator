@@ -1,0 +1,16 @@
+{
+  "estimator_profile": "pf_strict",
+  "fixed_measurement_budget": 12,
+  "num_particles": 64,
+  "min_particles": 64,
+  "max_particles": 64,
+  "planner_enabled": false,
+  "random_seed": 20260716,
+  "replay_candidate_spacing_m": 2.0,
+  "use_gpu": false,
+  "reporting": {
+    "final_estimate_source": "pf_posterior",
+    "include_cardinality_distribution": true,
+    "include_credible_regions": true
+  }
+}

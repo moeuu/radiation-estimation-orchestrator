@@ -1,0 +1,23 @@
+{
+  "mode": "count",
+  "isotope_names": ["Cs-137", "Co-60", "Eu-154"],
+  "patch_spacing_m": [1.0, 1.0, 1.0],
+  "quadrature_order": 1,
+  "obstacle_height_m": 1.2,
+  "l1_weight": 0.0001,
+  "tv_weight": 0.0001,
+  "isotope_group_weight": 0.0,
+  "fit_background_nuisance": true,
+  "fit_scatter_nuisance": true,
+  "max_iterations": 1000,
+  "tolerance": 1e-06,
+  "objective_tolerance": 1e-07,
+  "check_interval": 10,
+  "use_gpu": false,
+  "debias_refit": true,
+  "coarse_to_fine_levels": 1,
+  "cluster_threshold_fraction": 0.1,
+  "held_out_fraction": 0.25,
+  "held_out_grouping": "station_id",
+  "random_seed": 20260716
+}

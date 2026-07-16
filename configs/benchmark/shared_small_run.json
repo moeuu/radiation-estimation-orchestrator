@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "shared-small-run-v1",
+  "measurement_log": "../../fixtures/shared_small_run/measurement_log",
+  "truth": "../../fixtures/shared_small_run/evaluation/truth.json",
+  "output_directory": "../../benchmark-results/shared-small-run-v1",
+  "pin_registry": "../../PINNED_ESTIMATORS.json",
+  "pf_profile": "pf_strict",
+  "random_seed": 20260716,
+  "expected_resolved_estimator_config_sha256": {
+    "pf_strict": "0cd576f4029a47f219949225d9a07262c95c532778fa788fd35b43e7328cb6c5",
+    "mle_count": "e9d2a350dbd4ec7fcba7802e3b09fd3a3b9ea9bf0cad52baed754458be44cd96",
+    "mle_spectral": "72c13c9d86e3b1928e613b446dce1f2bcdc535ba41d42b1fc034dc07e162f350"
+  },
+  "estimator_configs": {
+    "pf": "../estimators/pf_strict_shared_small.json",
+    "mle_count": "../estimators/mle_count_shared_small.json",
+    "mle_spectral": "../estimators/mle_spectral_shared_small.json"
+  },
+  "adapters": {
+    "particle_filter": {
+      "timeout_s": 3600,
+      "verify_revision": true,
+      "require_clean": true,
+      "allowed_dirty_prefixes": [
+        "results/",
+        "logs/",
+        "build/",
+        ".cache/",
+        ".pytest_cache/",
+        ".ruff_cache/",
+        ".venv/"
+      ]
+    },
+    "surface_mle": {
+      "timeout_s": 3600,
+      "verify_revision": true,
+      "require_clean": true,
+      "allowed_dirty_prefixes": [
+        "results/",
+        "logs/",
+        "build/",
+        ".cache/",
+        ".pytest_cache/",
+        ".ruff_cache/",
+        ".venv/"
+      ]
+    }
+  }
+}

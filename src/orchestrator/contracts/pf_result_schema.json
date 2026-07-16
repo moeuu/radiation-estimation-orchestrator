@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/pf-result-v1.schema.json",
+  "title": "Pure particle-filter result v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "estimator_family",
+    "estimator_variant",
+    "final_estimate_source",
+    "uses_all_history_batch_fit",
+    "uses_surface_map",
+    "uses_batch_model_order",
+    "isotopes",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "estimator_family": {"const": "particle_filter"},
+    "estimator_variant": {
+      "enum": ["pf_strict", "pf_profiled", "pf_online_profiled", "count_domain_pf_only"]
+    },
+    "final_estimate_source": {"const": "pf_posterior"},
+    "uses_all_history_batch_fit": {"const": false},
+    "uses_surface_map": {"const": false},
+    "uses_batch_model_order": {"const": false},
+    "isotopes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/isotopeEstimate"}
+    },
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "probability": {"type": "number", "minimum": 0, "maximum": 1},
+    "xyz": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "items": false
+    },
+    "mode": {
+      "type": "object",
+      "required": ["position_mean_xyz", "position_covariance_xyz", "strength_mean_cps_1m", "posterior_mass"],
+      "properties": {
+        "position_mean_xyz": {"$ref": "#/$defs/xyz"},
+        "position_covariance_xyz": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}
+        },
+        "strength_mean_cps_1m": {"type": "number", "minimum": 0},
+        "credible_radius_m": {"type": "number", "minimum": 0},
+        "strength_credible_interval_cps_1m": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": {"type": "number", "minimum": 0}
+        },
+        "posterior_mass": {"$ref": "#/$defs/probability"}
+      },
+      "additionalProperties": true
+    },
+    "legacySource": {
+      "type": "object",
+      "required": ["position_xyz", "integrated_strength_cps_1m"],
+      "properties": {
+        "position_xyz": {"$ref": "#/$defs/xyz"},
+        "integrated_strength_cps_1m": {"type": "number", "minimum": 0},
+        "posterior_mass": {"$ref": "#/$defs/probability"}
+      },
+      "additionalProperties": true
+    },
+    "isotopeEstimate": {
+      "type": "object",
+      "required": ["map_cardinality", "cardinality_distribution"],
+      "properties": {
+        "map_cardinality": {"type": "integer", "minimum": 0},
+        "cardinality_distribution": {
+          "type": "object",
+          "minProperties": 1,
+          "patternProperties": {"^(0|[1-9][0-9]*)$": {"$ref": "#/$defs/probability"}},
+          "additionalProperties": false
+        },
+        "modes": {"type": "array", "items": {"$ref": "#/$defs/mode"}},
+        "sources": {"type": "array", "items": {"$ref": "#/$defs/legacySource"}}
+      },
+      "oneOf": [
+        {"required": ["modes"]},
+        {"required": ["sources"], "not": {"required": ["modes"]}}
+      ],
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "estimator_repository",
+        "estimator_commit",
+        "measurement_log_schema_version",
+        "measurement_log_sha256",
+        "resolved_config_sha256",
+        "config_sha256",
+        "random_seed",
+        "planner_belief_sources",
+        "batch_feedback_applied"
+      ],
+      "properties": {
+        "estimator_repository": {"type": "string", "minLength": 1},
+        "estimator_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "measurement_log_schema_version": {"const": 1},
+        "measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_config_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "random_seed": {"type": "integer"},
+        "planner_belief_sources": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "pf_posterior",
+              "pf_tentative"
+            ]
+          }
+        },
+        "batch_feedback_applied": {"const": false},
+        "command": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  }
+}

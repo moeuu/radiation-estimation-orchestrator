@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/measurement-log-v1.schema.json",
+  "title": "MeasurementLog run manifest v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "repository_commit",
+    "resolved_config_sha256",
+    "forward_model_manifest_sha256",
+    "source_rate_model",
+    "source_rate_semantics",
+    "isotopes",
+    "environment",
+    "sim_backend",
+    "spectrum_count_method",
+    "model_identifiers",
+    "index_conventions",
+    "artifact_hashes",
+    "source_layout_path",
+    "record_count",
+    "energy_bin_count"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+    "resolved_config_sha256": {"$ref": "#/$defs/sha256"},
+    "forward_model_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "source_rate_semantics": {
+      "type": "object",
+      "required": ["quantity", "unit", "normalization_distance_m"],
+      "properties": {
+        "quantity": {"const": "expected_net_detector_count_rate"},
+        "unit": {"const": "cps"},
+        "normalization_distance_m": {"const": 1.0}
+      },
+      "additionalProperties": true
+    },
+    "model_identifiers": {
+      "type": "object",
+      "required": ["detector", "shield", "environment", "obstacle", "transport", "spectrum"],
+      "properties": {
+        "detector": {"$ref": "#/$defs/modelIdentifier"},
+        "shield": {"$ref": "#/$defs/modelIdentifier"},
+        "environment": {"$ref": "#/$defs/modelIdentifier"},
+        "obstacle": {"$ref": "#/$defs/modelIdentifier"},
+        "transport": {"$ref": "#/$defs/modelIdentifier"},
+        "spectrum": {"$ref": "#/$defs/modelIdentifier"}
+      },
+      "additionalProperties": false
+    },
+    "index_conventions": {
+      "type": "object",
+      "required": ["record_order", "step_id", "action_id", "station_id"],
+      "properties": {
+        "record_order": {"const": "causal_step_order"},
+        "step_id": {"type": "string", "minLength": 1},
+        "action_id": {"type": "string", "minLength": 1},
+        "station_id": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "required": [
+        "runtime_config.resolved.json",
+        "environment.json",
+        "forward_model_manifest.json",
+        "observations.npz",
+        "observation_metadata.jsonl",
+        "repository_commit.txt"
+      ],
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "upstream_pf_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+    "runtime_config_sha256": {"$ref": "#/$defs/sha256"},
+    "source_rate_model": {"const": "detector_cps_1m"},
+    "isotopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "environment": {"type": "object"},
+    "obstacle_layout_path": {"type": ["string", "null"]},
+    "source_layout_path": {"type": "null"},
+    "sim_backend": {"type": "string", "minLength": 1},
+    "spectrum_count_method": {"type": "string", "minLength": 1},
+    "metadata": {"type": "object"},
+    "record_count": {"type": "integer", "minimum": 1},
+    "energy_bin_count": {"type": "integer", "minimum": 1}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "modelIdentifier": {
+      "type": "object",
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": true
+    }
+  }
+}

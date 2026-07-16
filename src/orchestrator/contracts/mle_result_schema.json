@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/mle-result-v1.schema.json",
+  "title": "Standalone surface-MLE diagnostics v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "isotope_names",
+    "patch_count",
+    "objective_value",
+    "poisson_deviance",
+    "iterations",
+    "converged",
+    "diagnostics",
+    "config"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "isotope_names": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "patch_count": {"type": "integer", "minimum": 1},
+    "predicted_spectra_present": {"type": "boolean"},
+    "predicted_isotope_counts_present": {"type": "boolean"},
+    "objective_value": {"type": "number"},
+    "poisson_deviance": {"type": "number", "minimum": 0},
+    "iterations": {"type": "integer", "minimum": 0},
+    "converged": {"type": "boolean"},
+    "diagnostics": {
+      "type": "object",
+      "required": ["mode", "hotspot_clusters"],
+      "properties": {
+        "mode": {"enum": ["count", "spectral"]},
+        "held_out_poisson_deviance": {"type": ["number", "null"], "minimum": 0},
+        "hotspot_clusters": {
+          "type": "array", "items": {"$ref": "#/$defs/cluster"}
+        },
+        "provenance": {"$ref": "#/$defs/provenance"}
+      },
+      "additionalProperties": true
+    },
+    "config": {"type": ["object", "null"]},
+    "provenance": {"$ref": "#/$defs/provenance"}
+  },
+  "anyOf": [
+    {"required": ["provenance"]},
+    {"properties": {"diagnostics": {"required": ["provenance"]}}}
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "xyz": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}],
+      "items": false
+    },
+    "cluster": {
+      "type": "object",
+      "required": ["isotope", "cluster_id", "patch_ids", "centroid_xyz", "integrated_strength_cps_1m", "surface_kinds"],
+      "properties": {
+        "isotope": {"type": "string", "minLength": 1},
+        "cluster_id": {"type": "integer", "minimum": 0},
+        "patch_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "centroid_xyz": {"$ref": "#/$defs/xyz"},
+        "integrated_strength_cps_1m": {"type": "number", "minimum": 0},
+        "peak_density_cps_1m_m2": {"type": "number", "minimum": 0},
+        "surface_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["estimator_family", "estimator_variant", "estimator_repository", "estimator_commit", "measurement_log_schema_version", "measurement_log_sha256", "config_sha256", "resolved_estimator_config_sha256", "uses_pf_state", "uses_pf_candidates", "candidate_domain"],
+      "properties": {
+        "estimator_family": {"const": "surface_mle"},
+        "estimator_variant": {"enum": ["count", "spectral"]},
+        "estimator_repository": {"type": "string", "minLength": 1},
+        "estimator_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+        "measurement_log_schema_version": {"const": 1},
+        "measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "resolved_estimator_config_sha256": {"$ref": "#/$defs/sha256"},
+        "uses_pf_state": {"const": false},
+        "uses_pf_candidates": {"const": false},
+        "candidate_domain": {"const": "complete_surface_dictionary"},
+        "command": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  }
+}
