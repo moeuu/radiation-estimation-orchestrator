@@ -1,4 +1,4 @@
-"""Filesystem-aware validation for MeasurementLog, PFResult, and MLEResult v1."""
+"""Filesystem-aware validation for pure-estimator and causal-hybrid contracts."""
 
 from __future__ import annotations
 
@@ -136,6 +136,103 @@ class MLEResultInfo:
         nested = self.diagnostics["diagnostics"]
         assert isinstance(nested, dict)
         return str(nested["mode"])
+
+
+@dataclass(frozen=True, slots=True)
+class MLESnapshotInfo:
+    """Validated v2 exact-prefix MLE snapshot."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    snapshot_sha256: str
+
+    @property
+    def cutoff_step(self) -> int:
+        return int(self.payload["data_cutoff_step"])
+
+    @property
+    def covered_step_ids(self) -> tuple[int, ...]:
+        return tuple(int(value) for value in self.payload["covered_step_ids"])  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class FutureCandidateScoreInfo:
+    """Validated future-only predictive scores for one frozen MLE snapshot."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    score_sha256: str
+
+    @property
+    def future_step_ids(self) -> tuple[int, ...]:
+        return tuple(int(value) for value in self.payload["future_step_ids"])  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class HybridPlanningRequestInfo:
+    """Validated collision-attested request for the PF DSS-PP boundary."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    request_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class HybridPlanningRecommendationInfo:
+    """Validated algorithmic recommendation that cannot authorize actuation."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    recommendation_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PFDirectiveInfo:
+    """Validated once-only MLE-to-PF directive."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    directive_sha256: str
+
+    @property
+    def cutoff_step(self) -> int:
+        return int(self.payload["data_cutoff_step"])
+
+
+@dataclass(frozen=True, slots=True)
+class PFDirectiveReceiptInfo:
+    """Validated proof of one safe PF directive application."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    receipt_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class HybridLedgerSummaryInfo:
+    """Validated hash-chained observation-use ledger summary."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    summary_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class HybridResultInfo:
+    """Validated causal PF+MLE hybrid result manifest."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    result_sha256: str
+
+    @property
+    def authoritative_clusters(self) -> tuple[MappingProxyType[str, object], ...]:
+        """Return the final cold spectral-MLE hotspot report."""
+        report = self.payload["authoritative_report"]
+        assert isinstance(report, dict)
+        clusters = report["hotspot_clusters"]
+        assert isinstance(clusters, list)
+        return tuple(MappingProxyType(cluster) for cluster in clusters)
 
 
 def _schema(name: str) -> dict[str, object]:
@@ -893,18 +990,1140 @@ def validate_mle_result(
     )
 
 
-def validate_mle_snapshot(path: str | Path) -> MappingProxyType[str, object]:
-    """Validate a cutoff-bound hybrid MLE snapshot and its coverage invariant."""
-    payload = load_json(path)
-    _validate_schema(payload, "mle_snapshot_schema.json", label="MLESnapshot")
+def _snapshot_coverage(payload: dict[str, object]) -> tuple[int, ...]:
     steps = payload["covered_step_ids"]
     assert isinstance(steps, list)
+    normalized = tuple(int(value) for value in steps)
     cutoff = int(payload["data_cutoff_step"])
-    if steps != sorted(steps) or max(int(value) for value in steps) != cutoff:
+    if tuple(sorted(normalized)) != normalized or normalized[-1] != cutoff:
         raise ContractError(
             "MLESnapshot covered_step_ids must be sorted and end exactly at data_cutoff_step."
         )
+    return normalized
+
+
+def validate_mle_snapshot(path: str | Path) -> MappingProxyType[str, object]:
+    """Validate a v1 or v2 cutoff-bound MLE snapshot without weakening v1 callers."""
+    payload = load_json(path)
+    version = payload.get("schema_version")
+    if version == 1:
+        _validate_schema(payload, "mle_snapshot_schema.json", label="MLESnapshot")
+    elif version == 2:
+        _validate_schema(payload, "mle_snapshot_v2_schema.json", label="MLESnapshot")
+    else:
+        raise ContractError(f"Unsupported MLESnapshot schema_version: {version!r}.")
+    _snapshot_coverage(payload)
+    if version == 2:
+        _validate_mle_snapshot_v2_semantics(payload)
     return MappingProxyType(payload)
+
+
+def _validate_mle_snapshot_v2_semantics(payload: dict[str, object]) -> None:
+    steps = _snapshot_coverage(payload)
+    predictions = payload["predicted_observations"]
+    assert isinstance(predictions, list)
+    prediction_steps = tuple(int(row["step_id"]) for row in predictions)  # type: ignore[index]
+    if prediction_steps != steps:
+        raise ContractError(
+            "MLESnapshot predicted_observations must exactly cover the declared prefix."
+        )
+    warm = payload["warm_start"]
+    assert isinstance(warm, dict)
+    has_identifiers = warm["snapshot_id"] is not None and warm["mle_result_sha256"] is not None
+    if bool(warm["used"]) != has_identifiers:
+        raise ContractError("MLESnapshot warm-start flag and identifiers are inconsistent.")
+    clusters = payload["clusters"]
+    assert isinstance(clusters, list)
+    candidate_ids = [str(cluster["snapshot_candidate_id"]) for cluster in clusters]  # type: ignore[index]
+    cluster_ids = [int(cluster["cluster_id"]) for cluster in clusters]  # type: ignore[index]
+    if len(candidate_ids) != len(set(candidate_ids)) or len(cluster_ids) != len(set(cluster_ids)):
+        raise ContractError("MLESnapshot candidate and cluster IDs must be unique.")
+
+
+def validate_mle_snapshot_v2(
+    path: str | Path,
+    *,
+    expected_covered_step_ids: tuple[int, ...] | None = None,
+    expected_source_run_id: str | None = None,
+    expected_prefix_log_sha256: str | None = None,
+    expected_covered_records_sha256: str | None = None,
+    expected_covered_station_boundaries_sha256: str | None = None,
+    expected_previous_snapshot: MLESnapshotInfo | None = None,
+    expected_previous_mle_result: MLEResultInfo | None = None,
+) -> MLESnapshotInfo:
+    """Validate v2 and optionally bind it to the controller's exact prefix."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "mle_snapshot_v2_schema.json", label="MLESnapshot v2")
+    _validate_mle_snapshot_v2_semantics(payload)
+    steps = _snapshot_coverage(payload)
+    if expected_covered_step_ids is not None and steps != expected_covered_step_ids:
+        raise ContractError("MLESnapshot coverage differs from the exact controller prefix.")
+    if expected_source_run_id is not None and payload["source_run_id"] != expected_source_run_id:
+        raise ContractError("MLESnapshot source run ID differs from its controller run.")
+    if (
+        expected_prefix_log_sha256 is not None
+        and payload["prefix_measurement_log_sha256"] != expected_prefix_log_sha256
+    ):
+        raise ContractError("MLESnapshot prefix MeasurementLog hash differs from its fit input.")
+    if (
+        expected_covered_records_sha256 is not None
+        and payload["covered_records_sha256"] != expected_covered_records_sha256
+    ):
+        raise ContractError("MLESnapshot covered-record digest differs from its exact prefix.")
+    if (
+        expected_covered_station_boundaries_sha256 is not None
+        and payload["covered_station_boundaries_sha256"]
+        != expected_covered_station_boundaries_sha256
+    ):
+        raise ContractError("MLESnapshot station-boundary digest differs from its prefix.")
+    if (expected_previous_snapshot is None) != (expected_previous_mle_result is None):
+        raise ContractError(
+            "Previous snapshot and MLE result must be supplied together for warm validation."
+        )
+    if expected_previous_snapshot is not None and expected_previous_mle_result is not None:
+        warm = payload["warm_start"]
+        assert isinstance(warm, dict)
+        expected_warm = {
+            "used": True,
+            "snapshot_id": expected_previous_snapshot.payload["snapshot_id"],
+            "mle_result_sha256": expected_previous_mle_result.result_sha256,
+        }
+        if warm != expected_warm:
+            raise ContractError("MLESnapshot warm-start ancestry differs from prior artifacts.")
+    return MLESnapshotInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        snapshot_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_future_candidate_score(
+    path: str | Path,
+    *,
+    expected_snapshot: MLESnapshotInfo | None = None,
+    expected_snapshot_mle_result: MLEResultInfo | None = None,
+    expected_current_log: MeasurementLogInfo | None = None,
+    expected_current_covered_records_sha256: str | None = None,
+) -> FutureCandidateScoreInfo:
+    """Validate frozen-snapshot scores and bind them to an exact later prefix."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "future_candidate_score_schema.json",
+        label="FutureCandidateScore",
+    )
+    cutoff = int(payload["snapshot_data_cutoff_step"])
+    future_steps = tuple(int(value) for value in payload["future_step_ids"])  # type: ignore[arg-type]
+    future_stations = tuple(int(value) for value in payload["future_station_ids"])  # type: ignore[arg-type]
+    if len(future_steps) != len(future_stations):
+        raise ContractError("Future score step and station arrays must have equal length.")
+    if any(right <= left for left, right in pairwise(future_steps)):
+        raise ContractError("Future score steps must be strictly increasing.")
+    if future_steps[0] <= cutoff:
+        raise ContractError("Future score evidence must begin strictly after the snapshot cutoff.")
+    if any(right < left for left, right in pairwise(future_stations)):
+        raise ContractError("Future score station IDs must be nondecreasing.")
+
+    candidates = payload["candidates"]
+    assert isinstance(candidates, list)
+    candidate_ids: set[str] = set()
+    cluster_ids: set[int] = set()
+    for candidate in candidates:
+        assert isinstance(candidate, dict)
+        candidate_id = str(candidate["snapshot_candidate_id"])
+        cluster_id = int(candidate["cluster_id"])
+        if candidate_id in candidate_ids or cluster_id in cluster_ids:
+            raise ContractError("Future score candidate and cluster IDs must be unique.")
+        candidate_ids.add(candidate_id)
+        cluster_ids.add(cluster_id)
+        rows = candidate["future_step_scores"]
+        assert isinstance(rows, list)
+        row_steps = tuple(int(row["step_id"]) for row in rows)  # type: ignore[index]
+        row_stations = tuple(int(row["station_id"]) for row in rows)  # type: ignore[index]
+        if row_steps != future_steps or row_stations != future_stations:
+            raise ContractError(
+                "Every future-score candidate must cover the exact declared future rows."
+            )
+        values = tuple(float(row["log_predictive_likelihood_ratio"]) for row in rows)  # type: ignore[index]
+        cumulative = float(candidate["cumulative_log_predictive_likelihood_ratio"])
+        if not np.isclose(cumulative, sum(values), rtol=0.0, atol=1e-12):
+            raise ContractError("Future score cumulative likelihood ratio is inconsistent.")
+
+    hashes = payload["hashes"]
+    assert isinstance(hashes, dict)
+    if expected_snapshot is not None:
+        snapshot = expected_snapshot.payload
+        expected_fields = {
+            "source_run_id": snapshot["source_run_id"],
+            "snapshot_id": snapshot["snapshot_id"],
+            "snapshot_data_cutoff_step": snapshot["data_cutoff_step"],
+            "snapshot_data_cutoff_station": snapshot["data_cutoff_station"],
+        }
+        if any(payload[name] != value for name, value in expected_fields.items()):
+            raise ContractError("Future score identity differs from its frozen MLE snapshot.")
+        expected_hashes = {
+            "snapshot_file_sha256": sha256_file(expected_snapshot.path),
+            "snapshot_canonical_sha256": expected_snapshot.snapshot_sha256,
+            "snapshot_mle_report_sha256": snapshot["mle_result_sha256"],
+            "snapshot_prefix_measurement_log_sha256": snapshot["prefix_measurement_log_sha256"],
+            "snapshot_covered_station_boundaries_sha256": snapshot[
+                "covered_station_boundaries_sha256"
+            ],
+        }
+        if any(hashes[name] != value for name, value in expected_hashes.items()):
+            raise ContractError("Future score hashes differ from its frozen MLE snapshot.")
+        snapshot_clusters = snapshot["clusters"]
+        assert isinstance(snapshot_clusters, list)
+        expected_candidates = {
+            str(cluster["snapshot_candidate_id"]): (  # type: ignore[index]
+                int(cluster["cluster_id"]),  # type: ignore[index]
+                str(cluster["isotope"]),  # type: ignore[index]
+                tuple(int(value) for value in cluster["patch_ids"]),  # type: ignore[index]
+            )
+            for cluster in snapshot_clusters
+        }
+        observed_candidates = {
+            str(candidate["snapshot_candidate_id"]): (
+                int(candidate["cluster_id"]),
+                str(candidate["isotope"]),
+                tuple(int(value) for value in candidate["patch_ids"]),  # type: ignore[arg-type]
+            )
+            for candidate in candidates
+        }
+        if observed_candidates != expected_candidates:
+            raise ContractError("Future score candidates differ from the snapshot clusters.")
+    if expected_snapshot_mle_result is not None:
+        if hashes["snapshot_mle_report_sha256"] != expected_snapshot_mle_result.result_sha256:
+            raise ContractError("Future score MLE report hash differs from its validated result.")
+    if expected_current_log is not None:
+        expected_future = tuple(step for step in expected_current_log.step_ids if step > cutoff)
+        expected_stations = tuple(
+            station
+            for step, station in zip(
+                expected_current_log.step_ids,
+                expected_current_log.station_ids,
+                strict=True,
+            )
+            if step > cutoff
+        )
+        if future_steps != expected_future or future_stations != expected_stations:
+            raise ContractError("Future score rows differ from the exact current prefix suffix.")
+        if payload["source_run_id"] != expected_current_log.manifest["run_id"]:
+            raise ContractError("Future score source run differs from the current prefix.")
+        if hashes["current_measurement_log_sha256"] != (
+            expected_current_log.measurement_log_sha256
+        ):
+            raise ContractError("Future score current MeasurementLog hash is invalid.")
+    if (
+        expected_current_covered_records_sha256 is not None
+        and hashes["current_covered_records_sha256"] != expected_current_covered_records_sha256
+    ):
+        raise ContractError("Future score current covered-record digest is invalid.")
+    return FutureCandidateScoreInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        score_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_hybrid_planning_request(path: str | Path) -> HybridPlanningRequestInfo:
+    """Validate the estimator-neutral, collision-attested planning input."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "hybrid_planning_request_schema.json",
+        label="HybridPlanningRequest",
+    )
+    candidates = np.asarray(payload["candidate_poses_xyz"], dtype=np.float64)
+    if not np.all(np.isfinite(candidates)) or len({tuple(row) for row in candidates}) != len(
+        candidates
+    ):
+        raise ContractError("Hybrid planning candidates must be finite and unique.")
+    attestation = payload["candidate_attestation"]
+    assert isinstance(attestation, dict)
+    expected_candidates_hash = sha256_bytes(canonical_json_bytes(candidates.tolist()))
+    if attestation["candidate_poses_sha256"] != expected_candidates_hash:
+        raise ContractError("Hybrid planning candidate attestation hash is invalid.")
+    dsspp = payload["dsspp_config"]
+    assert isinstance(dsspp, dict)
+    if dsspp.get("augment_candidates") is not False:
+        raise ContractError("Hybrid planning must disable unattested candidate augmentation.")
+    if (
+        dsspp.get("include_runtime_rescue_modes", False) is not False
+        or dsspp.get("include_global_surface_rescue_modes", False) is not False
+    ):
+        raise ContractError("Hybrid planning may not consume legacy rescue modes.")
+    modes = payload["external_modes"]
+    assert isinstance(modes, list)
+    mode_ids = [str(mode["mode_id"]) for mode in modes]  # type: ignore[index]
+    if len(mode_ids) != len(set(mode_ids)):
+        raise ContractError("Hybrid planning external mode IDs must be unique.")
+    bounds = payload.get("bounds_xyz")
+    if isinstance(bounds, dict):
+        lower = np.asarray(bounds["min"], dtype=float)
+        upper = np.asarray(bounds["max"], dtype=float)
+        if np.any(lower > upper):
+            raise ContractError("Hybrid planning bounds minimum exceeds maximum.")
+    heights = payload.get("continuous_height_bounds_m")
+    if isinstance(heights, list) and float(heights[0]) > float(heights[1]):
+        raise ContractError("Hybrid planning height bounds are reversed.")
+    return HybridPlanningRequestInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        request_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def _contains_key(value: object, forbidden: str) -> bool:
+    if isinstance(value, dict):
+        return forbidden in value or any(
+            _contains_key(child, forbidden) for child in value.values()
+        )
+    if isinstance(value, list):
+        return any(_contains_key(child, forbidden) for child in value)
+    return False
+
+
+def validate_hybrid_planning_recommendation(
+    path: str | Path,
+    *,
+    expected_request: HybridPlanningRequestInfo | None = None,
+) -> HybridPlanningRecommendationInfo:
+    """Validate recommendation-only semantics and optional request binding."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "hybrid_planning_recommendation_schema.json",
+        label="HybridPlanningRecommendation",
+    )
+    if _contains_key(payload, "measurement_log_sha256"):
+        raise ContractError("Hybrid planning causal identity may not include a full-log hash.")
+    integrity = payload["pf_state_integrity"]
+    assert isinstance(integrity, dict)
+    if (
+        integrity.get("state_sha256_before_planning")
+        != integrity.get("state_sha256_after_planning")
+        or integrity.get("pf_particles_or_weights_mutated_by_planning") is not False
+        or integrity.get("external_modes_mutated_pf") is not False
+    ):
+        raise ContractError("Hybrid planning recommendation mutated PF state.")
+    if expected_request is not None:
+        request = expected_request.payload
+        boundary = payload["causal_boundary"]
+        attestation = payload["candidate_attestation"]
+        belief = payload["belief"]
+        provenance = payload["provenance"]
+        selected = payload["selected_action"]
+        assert isinstance(boundary, dict)
+        assert isinstance(attestation, dict)
+        assert isinstance(belief, dict)
+        assert isinstance(provenance, dict)
+        assert isinstance(selected, dict)
+        expected_boundary = {
+            "source_run_id": request["source_run_id"],
+            "data_cutoff_step": request["data_cutoff_step"],
+            "data_cutoff_station": request["data_cutoff_station"],
+            "covered_records_sha256": request["covered_records_sha256"],
+            "pf_resolved_config_sha256": request["pf_resolved_config_sha256"],
+            "causal_identity_uses_record_prefix_only": True,
+        }
+        if boundary != expected_boundary:
+            raise ContractError("Hybrid planning recommendation causal boundary is invalid.")
+        if attestation != request["candidate_attestation"]:
+            raise ContractError("Hybrid planning recommendation candidate attestation differs.")
+        if provenance.get("pf_resolved_config_sha256") != request["pf_resolved_config_sha256"]:
+            raise ContractError("Hybrid planning recommendation PF config hash differs.")
+        if provenance.get("causal_planning_request_sha256") != expected_request.request_sha256:
+            raise ContractError(
+                "Hybrid planning recommendation is not bound to the exact request artifact."
+            )
+        index = int(selected["candidate_index"])
+        candidates = request["candidate_poses_xyz"]
+        assert isinstance(candidates, list)
+        if index >= len(candidates) or selected["pose_xyz"] != candidates[index]:
+            raise ContractError("Hybrid planning selected action is outside attested candidates.")
+        modes = request["external_modes"]
+        assert isinstance(modes, list)
+        included = [
+            str(mode["mode_id"])  # type: ignore[index]
+            for mode in modes
+            if mode["verification_state"] in {"pending", "verified"}  # type: ignore[index]
+        ]
+        excluded = [
+            str(mode["mode_id"])  # type: ignore[index]
+            for mode in modes
+            if mode["verification_state"] == "quarantined"  # type: ignore[index]
+        ]
+        if (
+            belief.get("included_external_mode_ids") != included
+            or belief.get("excluded_quarantined_mode_ids") != excluded
+        ):
+            raise ContractError("Hybrid planning recommendation mode filtering differs.")
+    return HybridPlanningRecommendationInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        recommendation_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def _directive_semantics(
+    payload: dict[str, object], *, expected_snapshot: MLESnapshotInfo | None = None
+) -> None:
+    steps = tuple(int(value) for value in payload["covered_step_ids"])  # type: ignore[arg-type]
+    cutoff = int(payload["data_cutoff_step"])
+    if tuple(sorted(steps)) != steps or steps[-1] != cutoff:
+        raise ContractError("PFDirective covered steps must be sorted and end at its cutoff.")
+    if int(payload["apply_after_step"]) != cutoff:
+        raise ContractError("PFDirective must be applied immediately after its cutoff state.")
+    if int(payload["corroboration_min_step"]) != cutoff + 1:
+        raise ContractError("PFDirective corroboration must begin strictly after the cutoff.")
+    safety = payload["safety_policy"]
+    assert isinstance(safety, dict)
+    kind = str(payload["directive_kind"])
+    requires_mh = kind == "proposal_only_mh"
+    if bool(safety["requires_target_preserving_mh"]) != requires_mh:
+        raise ContractError("PFDirective MH requirement is inconsistent with directive_kind.")
+    proposals = payload["proposals"]
+    assert isinstance(proposals, list)
+    if not proposals:
+        raise ContractError("PFDirective must contain at least one proposal.")
+    identifiers = [str(proposal["proposal_id"]) for proposal in proposals]  # type: ignore[index]
+    if len(identifiers) != len(set(identifiers)):
+        raise ContractError("PFDirective proposal IDs must be unique.")
+    for proposal in proposals:
+        assert isinstance(proposal, dict)
+        kernel = proposal["proposal_kernel"]
+        if requires_mh and kernel is None:
+            raise ContractError("proposal_only_mh requires a density-defined proposal kernel.")
+        if not requires_mh and kernel is not None:
+            raise ContractError("verification_only may not carry a PF proposal kernel.")
+    if expected_snapshot is not None:
+        snapshot = expected_snapshot.payload
+        if payload["snapshot_id"] != snapshot["snapshot_id"]:
+            raise ContractError("PFDirective snapshot ID differs from its validated snapshot.")
+        if payload["snapshot_sha256"] != expected_snapshot.snapshot_sha256:
+            raise ContractError("PFDirective snapshot hash differs from its validated snapshot.")
+        for field in (
+            "source_run_id",
+            "prefix_measurement_log_sha256",
+            "covered_records_sha256",
+            "covered_station_boundaries_sha256",
+            "data_cutoff_step",
+            "data_cutoff_station",
+            "covered_step_ids",
+            "cutoff_station_complete",
+        ):
+            if payload[field] != snapshot[field]:
+                raise ContractError(f"PFDirective field {field!r} differs from MLESnapshot.")
+        available = {
+            str(cluster["snapshot_candidate_id"])
+            for cluster in snapshot["clusters"]  # type: ignore[index,union-attr]
+        }
+        if any(str(proposal["snapshot_candidate_id"]) not in available for proposal in proposals):
+            raise ContractError("PFDirective proposal is absent from its MLESnapshot.")
+
+
+def validate_pf_directive(
+    path: str | Path, *, expected_snapshot: MLESnapshotInfo | None = None
+) -> PFDirectiveInfo:
+    """Validate a safe once-only PF directive and its source-snapshot binding."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "pf_directive_schema.json", label="PFDirective")
+    _directive_semantics(payload, expected_snapshot=expected_snapshot)
+    return PFDirectiveInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        directive_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_pf_directive_receipt(
+    path: str | Path, *, expected_directive: PFDirectiveInfo | None = None
+) -> PFDirectiveReceiptInfo:
+    """Validate one PF application proof and its no-reweight/MH evidence."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "pf_directive_receipt_schema.json", label="PFDirectiveReceipt")
+    cutoff = int(payload["data_cutoff_step"])
+    if int(payload["applied_after_step"]) != cutoff:
+        raise ContractError("PFDirectiveReceipt applied_after_step must equal its cutoff.")
+    safety = payload["safety_evidence"]
+    assert isinstance(safety, dict)
+    if int(safety["next_observation_min_step"]) != cutoff + 1:
+        raise ContractError("PF must resume observation processing strictly after the cutoff.")
+    kind = str(payload["directive_kind"])
+    status = str(payload["status"])
+    target_mh = kind == "proposal_only_mh" and status == "applied"
+    if bool(safety["target_preserving_mh_performed"]) != target_mh:
+        raise ContractError("PFDirectiveReceipt target-preserving MH evidence is inconsistent.")
+    outcomes = payload["candidate_outcomes"]
+    assert isinstance(outcomes, list)
+    outcome_ids = [str(outcome["proposal_id"]) for outcome in outcomes]  # type: ignore[index]
+    if len(outcome_ids) != len(set(outcome_ids)):
+        raise ContractError("PFDirectiveReceipt proposal outcomes must be unique.")
+    for outcome in outcomes:
+        assert isinstance(outcome, dict)
+        value = str(outcome["outcome"])
+        ratio = outcome["mh_log_acceptance_ratio"]
+        draw = outcome["mh_log_uniform_draw"]
+        attempts = int(outcome["mh_attempt_count"])
+        accepted = int(outcome["mh_accepted_count"])
+        rejected = int(outcome["mh_rejected_count"])
+        not_sampled = int(outcome["not_sampled_count"])
+        eligible = int(outcome["eligible_particle_count"])
+        if attempts != accepted + rejected or eligible != attempts + not_sampled:
+            raise ContractError("PFDirectiveReceipt candidate aggregate counts are inconsistent.")
+        expected_value = (
+            "not_applied"
+            if attempts == 0
+            else "mh_accepted"
+            if accepted == attempts
+            else "mh_rejected"
+            if rejected == attempts
+            else "mh_mixed"
+        )
+        paired_scalar_evidence = ratio is not None and draw is not None
+        if (ratio is None) != (draw is None) or paired_scalar_evidence != (attempts == 1):
+            raise ContractError(
+                "PFDirectiveReceipt scalar MH evidence is valid only for one attempt."
+            )
+        if kind == "proposal_only_mh" and status == "applied":
+            if value != expected_value:
+                raise ContractError(
+                    "Applied MH outcome label differs from its aggregate particle counts."
+                )
+        elif kind == "verification_only" and status == "applied":
+            if (
+                value != "registered"
+                or attempts != 0
+                or eligible != 0
+                or ratio is not None
+                or draw is not None
+            ):
+                raise ContractError("Verification receipts may only register candidates.")
+        elif status == "rejected" and (value != "not_applied" or eligible != 0):
+            raise ContractError(
+                "Rejected directives must mark every proposal not_applied with zero counts."
+            )
+    if expected_directive is not None:
+        directive = expected_directive.payload
+        for receipt_field, directive_field in (
+            ("directive_id", "directive_id"),
+            ("directive_kind", "directive_kind"),
+            ("data_cutoff_step", "data_cutoff_step"),
+        ):
+            if payload[receipt_field] != directive[directive_field]:
+                raise ContractError("PFDirectiveReceipt differs from its validated directive.")
+        if payload["directive_sha256"] != expected_directive.directive_sha256:
+            raise ContractError("PFDirectiveReceipt directive hash is invalid.")
+        provenance = payload["provenance"]
+        assert isinstance(provenance, dict)
+        for field in (
+            "source_run_id",
+            "covered_records_sha256",
+            "pf_resolved_config_sha256",
+        ):
+            if provenance[field] != directive[field]:
+                raise ContractError(
+                    f"PFDirectiveReceipt provenance field {field!r} differs from directive."
+                )
+        expected_ids = {
+            str(proposal["proposal_id"])
+            for proposal in directive["proposals"]  # type: ignore[index,union-attr]
+        }
+        if set(outcome_ids) != expected_ids:
+            raise ContractError("PFDirectiveReceipt must account for every directive proposal.")
+    return PFDirectiveReceiptInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        receipt_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_hybrid_ledger_summary(path: str | Path) -> HybridLedgerSummaryInfo:
+    """Recompute a ledger hash chain and its once-only/future-only invariants."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "hybrid_ledger_summary_schema.json", label="HybridLedgerSummary")
+    events = payload["events"]
+    assert isinstance(events, list)
+    if int(payload["event_count"]) != len(events):
+        raise ContractError("Hybrid ledger event_count differs from its event array.")
+    previous = str(payload["genesis_event_sha256"])
+    seen_event_ids: set[str] = set()
+    snapshots: set[str] = set()
+    directives: dict[str, tuple[int, set[str], str]] = {}
+    receipts: set[str] = set()
+    applied_receipts: set[str] = set()
+    corroboration: set[tuple[str, str, int]] = set()
+    for index, event in enumerate(events):
+        assert isinstance(event, dict)
+        if int(event["event_index"]) != index:
+            raise ContractError("Hybrid ledger event indices must be contiguous from zero.")
+        if event["previous_event_sha256"] != previous:
+            raise ContractError("Hybrid ledger previous-event hash chain is broken.")
+        event_id = str(event["event_id"])
+        if event_id in seen_event_ids:
+            raise ContractError("Hybrid ledger event IDs must be unique.")
+        seen_event_ids.add(event_id)
+        body = {key: value for key, value in event.items() if key != "event_sha256"}
+        expected_hash = sha256_bytes(canonical_json_bytes(body))
+        if event["event_sha256"] != expected_hash:
+            raise ContractError("Hybrid ledger event content hash is invalid.")
+        previous = expected_hash
+        event_type = str(event["event_type"])
+        child = event["payload"]
+        assert isinstance(child, dict)
+        if event_type == "snapshot_registered":
+            snapshots.add(str(child["snapshot_id"]))
+        elif event_type == "directive_issued":
+            directive_id = str(child["directive_id"])
+            if str(child["snapshot_id"]) not in snapshots:
+                raise ContractError("Hybrid ledger directive precedes its snapshot.")
+            if directive_id in directives:
+                raise ContractError("Hybrid ledger issued a directive more than once.")
+            proposals = {str(value) for value in child["proposal_ids"]}  # type: ignore[union-attr]
+            if child.get("direct_mle_objective_reweight") is not False:
+                raise ContractError("Hybrid ledger directive attempted MLE-objective reweighting.")
+            if child.get("hard_prune_authorized") is not False:
+                raise ContractError("Hybrid ledger directive attempted to authorize hard pruning.")
+            directives[directive_id] = (
+                int(child["data_cutoff_step"]),
+                proposals,
+                str(child["directive_sha256"]),
+            )
+        elif event_type == "directive_receipt":
+            directive_id = str(child["directive_id"])
+            if directive_id not in directives:
+                raise ContractError("Hybrid ledger receipt precedes directive issuance.")
+            if directive_id in receipts:
+                raise ContractError("Hybrid ledger applied one directive more than once.")
+            _validate_schema(
+                child,
+                "pf_directive_receipt_schema.json",
+                label="Hybrid ledger directive receipt",
+            )
+            cutoff, _, directive_hash = directives[directive_id]
+            if child["directive_sha256"] != directive_hash:
+                raise ContractError("Hybrid ledger receipt has a different directive hash.")
+            if int(child["data_cutoff_step"]) != cutoff:
+                raise ContractError("Hybrid ledger receipt has a different directive cutoff.")
+            receipts.add(directive_id)
+            if child["status"] == "applied":
+                applied_receipts.add(directive_id)
+        elif event_type == "corroboration":
+            directive_id = str(child["directive_id"])
+            proposal_id = str(child["proposal_id"])
+            step_id = int(child["step_id"])
+            if directive_id not in directives:
+                raise ContractError("Hybrid ledger corroboration precedes directive issuance.")
+            if directive_id not in applied_receipts:
+                raise ContractError("Hybrid ledger corroboration lacks an applied receipt.")
+            cutoff, proposal_ids, _ = directives[directive_id]
+            if proposal_id not in proposal_ids or step_id <= cutoff:
+                raise ContractError(
+                    "Hybrid ledger corroboration is not independent future evidence."
+                )
+            use_key = (directive_id, proposal_id, step_id)
+            if use_key in corroboration:
+                raise ContractError("Hybrid ledger reused corroboration evidence.")
+            if child.get("future_only") is not True:
+                raise ContractError("Hybrid ledger corroboration must be future-only.")
+            if child.get("evidence_family") != (
+                "frozen_count_snapshot_cluster_log_predictive_ratio"
+            ):
+                raise ContractError("Hybrid ledger corroboration evidence family is invalid.")
+            ratio = child.get("log_predictive_likelihood_ratio")
+            if not isinstance(ratio, int | float) or not np.isfinite(float(ratio)):
+                raise ContractError("Hybrid ledger predictive likelihood ratio is invalid.")
+            if child.get("candidate_state") not in {
+                "pending",
+                "verified",
+                "quarantined",
+            }:
+                raise ContractError("Hybrid ledger candidate state is invalid.")
+            for name in ("future_score_sha256", "current_covered_records_sha256"):
+                digest = child.get(name)
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(character not in "0123456789abcdef" for character in digest)
+                ):
+                    raise ContractError(f"Hybrid ledger corroboration {name} is invalid.")
+            if not isinstance(child.get("snapshot_id"), str) or not isinstance(
+                child.get("snapshot_candidate_id"), str
+            ):
+                raise ContractError("Hybrid ledger corroboration snapshot identity is invalid.")
+            corroboration.add(use_key)
+    if payload["last_event_sha256"] != previous:
+        raise ContractError("Hybrid ledger last_event_sha256 differs from the chain tail.")
+    return HybridLedgerSummaryInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        summary_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def _hybrid_cluster_projection(result: MLEResultInfo) -> list[dict[str, object]]:
+    """Project the standalone MLE cluster contract into the hybrid report."""
+    return [
+        {
+            "cluster_id": int(cluster["cluster_id"]),
+            "isotope": str(cluster["isotope"]),
+            "centroid_xyz": [float(value) for value in cluster["centroid_xyz"]],  # type: ignore[arg-type]
+            "integrated_strength_cps_1m": float(cluster["integrated_strength_cps_1m"]),
+            "surface_kinds": [str(value) for value in cluster["surface_kinds"]],  # type: ignore[arg-type]
+            "patch_ids": [int(value) for value in cluster["patch_ids"]],  # type: ignore[arg-type]
+        }
+        for cluster in result.hotspot_clusters
+    ]
+
+
+def _ledger_candidate_state_counts(
+    ledger: HybridLedgerSummaryInfo,
+) -> dict[str, int]:
+    """Derive proposal states solely from the validated append-only ledger."""
+    states: dict[tuple[str, str], str] = {}
+    events = ledger.payload["events"]
+    assert isinstance(events, list)
+    for event in events:
+        assert isinstance(event, dict)
+        child = event["payload"]
+        assert isinstance(child, dict)
+        if event["event_type"] == "directive_issued":
+            directive_id = str(child["directive_id"])
+            for proposal_id in child["proposal_ids"]:  # type: ignore[union-attr]
+                states[(directive_id, str(proposal_id))] = "pending"
+        elif event["event_type"] == "corroboration":
+            key = (str(child["directive_id"]), str(child["proposal_id"]))
+            if key not in states:
+                raise ContractError("Ledger candidate state references an unknown proposal.")
+            states[key] = str(child["candidate_state"])
+    return {
+        name: sum(value == name for value in states.values())
+        for name in ("pending", "verified", "quarantined")
+    }
+
+
+def _require_cold_full_mle(
+    result: MLEResultInfo,
+    *,
+    mode: str,
+    expected_step_ids: tuple[int, ...] | None,
+) -> None:
+    """Require explicit MLE lineage proving an independent cold full-history fit."""
+    if result.mode != mode:
+        raise ContractError(f"Final {mode} MLE role is bound to an {result.mode!r} result.")
+    nested = result.diagnostics["diagnostics"]
+    assert isinstance(nested, dict)
+    lineage = nested.get("causal_lineage")
+    if not isinstance(lineage, dict):
+        raise ContractError("Final MLE result lacks causal_lineage evidence.")
+    if lineage.get("fit_kind") != "cold_start_all_history" or lineage.get("warm_start") is not None:
+        raise ContractError("Final MLE result must be an independent cold all-history fit.")
+    if expected_step_ids is not None:
+        covered = tuple(int(value) for value in lineage.get("covered_step_ids", ()))
+        if covered != expected_step_ids or int(lineage.get("record_count", -1)) != len(
+            expected_step_ids
+        ):
+            raise ContractError("Final MLE result does not cover the complete MeasurementLog.")
+
+
+def validate_hybrid_result(
+    path: str | Path,
+    *,
+    expected_measurement_log: MeasurementLogInfo | None = None,
+    expected_source_measurement_log: MeasurementLogInfo | None = None,
+    expected_pf_result: PFResultInfo | None = None,
+    expected_final_count_mle_result: MLEResultInfo | None = None,
+    expected_final_spectral_mle_result: MLEResultInfo | None = None,
+    expected_ledger: HybridLedgerSummaryInfo | None = None,
+    expected_snapshots: tuple[MLESnapshotInfo, ...] | None = None,
+    expected_directives: tuple[PFDirectiveInfo, ...] | None = None,
+    expected_receipts: tuple[PFDirectiveReceiptInfo, ...] | None = None,
+    expected_future_candidate_scores: tuple[FutureCandidateScoreInfo, ...] | None = None,
+    expected_planning_recommendations: tuple[HybridPlanningRecommendationInfo, ...] | None = None,
+    expected_verification_queue_sha256: str | None = None,
+) -> HybridResultInfo:
+    """Validate a complete causal hybrid result and optional referenced artifacts."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "hybrid_result_schema.json", label="HybridResult")
+
+    measurement = payload["measurement_log"]
+    artifacts = payload["artifacts"]
+    report = payload["authoritative_report"]
+    verification = payload["verification_summary"]
+    safety = payload["safety"]
+    assert isinstance(measurement, dict)
+    assert isinstance(artifacts, dict)
+    assert isinstance(report, dict)
+    assert isinstance(verification, dict)
+    assert isinstance(safety, dict)
+
+    if int(measurement["source_record_count"]) != int(measurement["inference_record_count"]):
+        raise ContractError(
+            "Station-marker derivation may not change the MeasurementLog record count."
+        )
+
+    roles = payload["estimator_roles"]
+    assert isinstance(roles, dict)
+    count_role = roles["final_count_diagnostic"]
+    report_role = roles["final_report"]
+    assert isinstance(count_role, dict)
+    assert isinstance(report_role, dict)
+    if count_role["estimator_variant"] != "count" or count_role["role"] != "diagnostic":
+        raise ContractError("Hybrid final count role must remain a non-authoritative diagnostic.")
+    if (
+        report_role["estimator_variant"] != "spectral"
+        or report_role["role"] != "authoritative_final_report"
+    ):
+        raise ContractError("Hybrid final report role must be the cold spectral MLE.")
+
+    snapshots = artifacts["snapshots"]
+    directives = artifacts["directives"]
+    receipts = artifacts["receipts"]
+    future_scores = artifacts["future_candidate_scores"]
+    planning_recommendations = artifacts["planning_recommendations"]
+    assert isinstance(snapshots, list)
+    assert isinstance(directives, list)
+    assert isinstance(receipts, list)
+    assert isinstance(future_scores, list)
+    assert isinstance(planning_recommendations, list)
+
+    snapshot_ids: dict[str, tuple[str, int]] = {}
+    previous_cutoff = -1
+    for snapshot in snapshots:
+        assert isinstance(snapshot, dict)
+        snapshot_id = str(snapshot["snapshot_id"])
+        cutoff = int(snapshot["data_cutoff_step"])
+        if snapshot_id in snapshot_ids or cutoff <= previous_cutoff:
+            raise ContractError("Hybrid snapshot IDs must be unique with increasing cutoffs.")
+        if cutoff > int(measurement["final_step_id"]):
+            raise ContractError("Hybrid snapshot cutoff exceeds the final observation step.")
+        snapshot_ids[snapshot_id] = (str(snapshot["sha256"]), cutoff)
+        previous_cutoff = cutoff
+
+    seen_score_refs: set[tuple[str, tuple[int, ...]]] = set()
+    for score in future_scores:
+        assert isinstance(score, dict)
+        snapshot_id = str(score["snapshot_id"])
+        if snapshot_id not in snapshot_ids:
+            raise ContractError("Future score references an unknown MLE snapshot.")
+        steps = tuple(int(value) for value in score["future_step_ids"])  # type: ignore[arg-type]
+        key = (snapshot_id, steps)
+        if key in seen_score_refs:
+            raise ContractError("Hybrid result repeats a future-score artifact reference.")
+        seen_score_refs.add(key)
+        if steps[0] <= snapshot_ids[snapshot_id][1] or any(
+            right <= left for left, right in pairwise(steps)
+        ):
+            raise ContractError("Hybrid future-score rows are not strictly post-cutoff.")
+
+    recommendation_ids: set[str] = set()
+    previous_planning_cutoff = -1
+    for recommendation in planning_recommendations:
+        assert isinstance(recommendation, dict)
+        recommendation_id = str(recommendation["recommendation_id"])
+        cutoff = int(recommendation["data_cutoff_step"])
+        if recommendation_id in recommendation_ids or cutoff <= previous_planning_cutoff:
+            raise ContractError(
+                "Hybrid planning recommendations must have unique IDs and increasing cutoffs."
+            )
+        if cutoff > int(measurement["final_step_id"]):
+            raise ContractError("Hybrid planning recommendation exceeds the final step.")
+        if recommendation["robot_actuation_authorized"] is not False:
+            raise ContractError("Hybrid planning recommendations may not authorize actuation.")
+        recommendation_ids.add(recommendation_id)
+        previous_planning_cutoff = cutoff
+
+    directive_ids: dict[str, tuple[str, str]] = {}
+    total_proposals = 0
+    hybrid_mode = str(payload["hybrid_mode"])
+    for directive in directives:
+        assert isinstance(directive, dict)
+        directive_id = str(directive["directive_id"])
+        snapshot_id = str(directive["snapshot_id"])
+        if directive_id in directive_ids:
+            raise ContractError("Hybrid directive IDs must be unique.")
+        if snapshot_id not in snapshot_ids:
+            raise ContractError("Hybrid directive references an unknown snapshot.")
+        if int(directive["data_cutoff_step"]) != snapshot_ids[snapshot_id][1]:
+            raise ContractError("Hybrid directive cutoff differs from its snapshot.")
+        if directive["directive_kind"] != hybrid_mode:
+            raise ContractError("Hybrid directive kind differs from the declared hybrid mode.")
+        directive_ids[directive_id] = (str(directive["sha256"]), str(directive["directive_kind"]))
+        total_proposals += int(directive["proposal_count"])
+
+    receipt_ids: set[str] = set()
+    received_directives: set[str] = set()
+    applied_mh = False
+    for receipt in receipts:
+        assert isinstance(receipt, dict)
+        receipt_id = str(receipt["receipt_id"])
+        directive_id = str(receipt["directive_id"])
+        if receipt_id in receipt_ids or directive_id in received_directives:
+            raise ContractError("Hybrid receipts must be unique and once-only per directive.")
+        if directive_id not in directive_ids:
+            raise ContractError("Hybrid receipt references an unknown directive.")
+        receipt_ids.add(receipt_id)
+        received_directives.add(directive_id)
+        applied_mh |= hybrid_mode == "proposal_only_mh" and str(receipt["status"]) == "applied"
+    if received_directives != set(directive_ids):
+        raise ContractError("Every issued hybrid directive must have exactly one receipt.")
+
+    counts = {name: int(verification[name]) for name in ("pending", "verified", "quarantined")}
+    if int(verification["total"]) != sum(counts.values()):
+        raise ContractError("Hybrid verification state counts do not sum to total.")
+    if int(verification["total"]) != total_proposals:
+        raise ContractError("Hybrid verification total differs from issued proposal count.")
+    if bool(safety["target_preserving_fixed_cardinality_mh_performed"]) != applied_mh:
+        raise ContractError("Hybrid MH safety claim differs from its applied receipts.")
+
+    cluster_ids: set[int] = set()
+    clusters = report["hotspot_clusters"]
+    assert isinstance(clusters, list)
+    for cluster in clusters:
+        assert isinstance(cluster, dict)
+        cluster_id = int(cluster["cluster_id"])
+        if cluster_id in cluster_ids:
+            raise ContractError("Authoritative hybrid-report cluster IDs must be unique.")
+        cluster_ids.add(cluster_id)
+    if report["result_sha256"] != artifacts["final_spectral_mle_result_sha256"]:
+        raise ContractError("Authoritative report hash differs from the final spectral MLE hash.")
+
+    if expected_measurement_log is not None:
+        if payload["source_run_id"] != expected_measurement_log.manifest["run_id"]:
+            raise ContractError("Hybrid result source run differs from MeasurementLog.")
+        if (
+            measurement["inference_measurement_log_sha256"]
+            != expected_measurement_log.measurement_log_sha256
+        ):
+            raise ContractError("Hybrid inference MeasurementLog hash differs from its input.")
+        if int(measurement["inference_record_count"]) != expected_measurement_log.record_count:
+            raise ContractError("Hybrid inference record count differs from MeasurementLog.")
+        if int(measurement["final_step_id"]) != expected_measurement_log.step_ids[-1]:
+            raise ContractError("Hybrid result final step differs from MeasurementLog.")
+    if expected_source_measurement_log is not None:
+        if payload["source_run_id"] != expected_source_measurement_log.manifest["run_id"]:
+            raise ContractError("Hybrid result source run differs from source MeasurementLog.")
+        if (
+            measurement["source_measurement_log_sha256"]
+            != expected_source_measurement_log.measurement_log_sha256
+        ):
+            raise ContractError("Hybrid source MeasurementLog hash differs from its input.")
+        if int(measurement["source_record_count"]) != expected_source_measurement_log.record_count:
+            raise ContractError("Hybrid source record count differs from MeasurementLog.")
+        if expected_measurement_log is not None and (
+            expected_source_measurement_log.step_ids != expected_measurement_log.step_ids
+        ):
+            raise ContractError("Station-marker derivation may not change observation step IDs.")
+
+    if expected_pf_result is not None:
+        if artifacts["final_pf_result_sha256"] != expected_pf_result.result_sha256:
+            raise ContractError("Hybrid result final PF hash differs from its validated bundle.")
+    expected_steps = None if expected_measurement_log is None else expected_measurement_log.step_ids
+    if expected_final_count_mle_result is not None:
+        if (
+            artifacts["final_count_mle_result_sha256"]
+            != expected_final_count_mle_result.result_sha256
+        ):
+            raise ContractError("Hybrid result final count MLE hash differs from its bundle.")
+        _require_cold_full_mle(
+            expected_final_count_mle_result,
+            mode="count",
+            expected_step_ids=expected_steps,
+        )
+    if expected_final_spectral_mle_result is not None:
+        if (
+            artifacts["final_spectral_mle_result_sha256"]
+            != expected_final_spectral_mle_result.result_sha256
+        ):
+            raise ContractError("Hybrid result final spectral MLE hash differs from its bundle.")
+        _require_cold_full_mle(
+            expected_final_spectral_mle_result,
+            mode="spectral",
+            expected_step_ids=expected_steps,
+        )
+        if clusters != _hybrid_cluster_projection(expected_final_spectral_mle_result):
+            raise ContractError("Authoritative report does not mirror final spectral MLE clusters.")
+        if expected_final_spectral_mle_result.diagnostics.get("converged") is not True:
+            raise ContractError("Authoritative final spectral MLE did not converge.")
+        if (
+            report["objective_value"]
+            != expected_final_spectral_mle_result.diagnostics["objective_value"]
+            or report["poisson_deviance"]
+            != expected_final_spectral_mle_result.diagnostics["poisson_deviance"]
+        ):
+            raise ContractError(
+                "Authoritative report diagnostics differ from the final spectral MLE."
+            )
+    if expected_ledger is not None:
+        if artifacts["hybrid_ledger_summary_sha256"] != expected_ledger.summary_sha256:
+            raise ContractError("Hybrid result ledger hash differs from its validated ledger.")
+        if int(artifacts["ledger_event_count"]) != int(expected_ledger.payload["event_count"]):
+            raise ContractError("Hybrid result ledger event count differs from its ledger.")
+        if artifacts["ledger_last_event_sha256"] != expected_ledger.payload["last_event_sha256"]:
+            raise ContractError("Hybrid result ledger tail differs from its ledger.")
+        if counts != _ledger_candidate_state_counts(expected_ledger):
+            raise ContractError("Hybrid verification counts differ from ledger-derived states.")
+    if (
+        expected_verification_queue_sha256 is not None
+        and artifacts["verification_queue_sha256"] != expected_verification_queue_sha256
+    ):
+        raise ContractError("Hybrid result verification queue hash differs from its artifact.")
+
+    if expected_snapshots is not None:
+        expected = [
+            {
+                "snapshot_id": str(snapshot.payload["snapshot_id"]),
+                "sha256": snapshot.snapshot_sha256,
+                "data_cutoff_step": snapshot.cutoff_step,
+                "data_cutoff_station": int(snapshot.payload["data_cutoff_station"]),
+                "warm_start_used": bool(snapshot.payload["warm_start"]["used"]),  # type: ignore[index]
+            }
+            for snapshot in sorted(expected_snapshots, key=lambda item: item.cutoff_step)
+        ]
+        if snapshots != expected:
+            raise ContractError("Hybrid result snapshot references differ from validated files.")
+    if expected_directives is not None:
+        expected = [
+            {
+                "directive_id": str(directive.payload["directive_id"]),
+                "sha256": directive.directive_sha256,
+                "snapshot_id": str(directive.payload["snapshot_id"]),
+                "data_cutoff_step": directive.cutoff_step,
+                "directive_kind": str(directive.payload["directive_kind"]),
+                "proposal_count": len(directive.payload["proposals"]),  # type: ignore[arg-type]
+            }
+            for directive in sorted(
+                expected_directives,
+                key=lambda item: (item.cutoff_step, str(item.payload["directive_id"])),
+            )
+        ]
+        if directives != expected:
+            raise ContractError("Hybrid result directive references differ from validated files.")
+    if expected_receipts is not None:
+        expected = [
+            {
+                "receipt_id": str(receipt.payload["receipt_id"]),
+                "sha256": receipt.receipt_sha256,
+                "directive_id": str(receipt.payload["directive_id"]),
+                "status": str(receipt.payload["status"]),
+            }
+            for receipt in sorted(
+                expected_receipts,
+                key=lambda item: str(item.payload["directive_id"]),
+            )
+        ]
+        if receipts != expected:
+            raise ContractError("Hybrid result receipt references differ from validated files.")
+    if expected_future_candidate_scores is not None:
+        expected = [
+            {
+                "snapshot_id": str(score.payload["snapshot_id"]),
+                "sha256": score.score_sha256,
+                "future_step_ids": list(score.future_step_ids),
+            }
+            for score in sorted(
+                expected_future_candidate_scores,
+                key=lambda item: (
+                    int(item.payload["snapshot_data_cutoff_step"]),
+                    item.future_step_ids[-1],
+                ),
+            )
+        ]
+        if future_scores != expected:
+            raise ContractError(
+                "Hybrid result future-score references differ from validated files."
+            )
+        if expected_ledger is not None:
+            score_rows: dict[tuple[str, str, int], set[tuple[int, float, str, str]]] = {}
+            for score in expected_future_candidate_scores:
+                snapshot_id = str(score.payload["snapshot_id"])
+                hashes = score.payload["hashes"]
+                assert isinstance(hashes, dict)
+                candidates = score.payload["candidates"]
+                assert isinstance(candidates, list)
+                for candidate in candidates:
+                    assert isinstance(candidate, dict)
+                    candidate_id = str(candidate["snapshot_candidate_id"])
+                    rows = candidate["future_step_scores"]
+                    assert isinstance(rows, list)
+                    for row in rows:
+                        assert isinstance(row, dict)
+                        key = (snapshot_id, candidate_id, int(row["step_id"]))
+                        value = (
+                            int(row["station_id"]),
+                            float(row["log_predictive_likelihood_ratio"]),
+                            score.score_sha256,
+                            str(hashes["current_covered_records_sha256"]),
+                        )
+                        score_rows.setdefault(key, set()).add(value)
+            ledger_events = expected_ledger.payload["events"]
+            assert isinstance(ledger_events, list)
+            for event in ledger_events:
+                assert isinstance(event, dict)
+                if event["event_type"] != "corroboration":
+                    continue
+                child = event["payload"]
+                assert isinstance(child, dict)
+                key = (
+                    str(child["snapshot_id"]),
+                    str(child["snapshot_candidate_id"]),
+                    int(child["step_id"]),
+                )
+                expected_rows = score_rows.get(key, set())
+                observed_row = (
+                    int(child["station_id"]),
+                    float(child["log_predictive_likelihood_ratio"]),
+                    str(child["future_score_sha256"]),
+                    str(child["current_covered_records_sha256"]),
+                )
+                if observed_row not in expected_rows:
+                    raise ContractError(
+                        "Ledger corroboration is not hash-bound to its future-score row."
+                    )
+    if expected_planning_recommendations is not None:
+        expected = []
+        for recommendation in sorted(
+            expected_planning_recommendations,
+            key=lambda item: int(
+                item.payload["causal_boundary"]["data_cutoff_step"]  # type: ignore[index]
+            ),
+        ):
+            boundary = recommendation.payload["causal_boundary"]
+            provenance = recommendation.payload["provenance"]
+            selected = recommendation.payload["selected_action"]
+            assert isinstance(boundary, dict)
+            assert isinstance(provenance, dict)
+            assert isinstance(selected, dict)
+            expected.append(
+                {
+                    "recommendation_id": str(recommendation.payload["recommendation_id"]),
+                    "sha256": recommendation.recommendation_sha256,
+                    "data_cutoff_step": int(boundary["data_cutoff_step"]),
+                    "data_cutoff_station": int(boundary["data_cutoff_station"]),
+                    "causal_planning_request_sha256": str(
+                        provenance["causal_planning_request_sha256"]
+                    ),
+                    "selected_action": dict(selected),
+                    "robot_actuation_authorized": False,
+                }
+            )
+        if planning_recommendations != expected:
+            raise ContractError("Hybrid result planning references differ from validated files.")
+
+    return HybridResultInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        result_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
 
 
 def validate_truth(path: str | Path, *, expected_run_id: str | None = None) -> dict[str, object]:

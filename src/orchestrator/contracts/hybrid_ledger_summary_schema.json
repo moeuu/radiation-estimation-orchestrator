@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/hybrid-ledger-summary-v1.schema.json",
+  "title": "Hash-chained hybrid observation-use ledger summary v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ledger_id",
+    "source_run_id",
+    "station_boundary_schedule_sha256",
+    "genesis_event_sha256",
+    "event_count",
+    "last_event_sha256",
+    "events",
+    "safety_summary"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "ledger_id": {"$ref": "#/$defs/id"},
+    "source_run_id": {"$ref": "#/$defs/id"},
+    "station_boundary_schedule_sha256": {"$ref": "#/$defs/sha256"},
+    "genesis_event_sha256": {"const": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "event_count": {"type": "integer", "minimum": 0},
+    "last_event_sha256": {"$ref": "#/$defs/sha256"},
+    "events": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/event"}
+    },
+    "safety_summary": {
+      "type": "object",
+      "required": [
+        "all_directives_once_only",
+        "all_corroboration_future_only",
+        "direct_mle_objective_reweight_performed",
+        "hard_prune_performed"
+      ],
+      "properties": {
+        "all_directives_once_only": {"const": true},
+        "all_corroboration_future_only": {"const": true},
+        "direct_mle_objective_reweight_performed": {"const": false},
+        "hard_prune_performed": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "event": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "event_index",
+        "event_type",
+        "event_id",
+        "previous_event_sha256",
+        "payload",
+        "event_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "event_index": {"type": "integer", "minimum": 0},
+        "event_type": {
+          "enum": ["snapshot_registered", "directive_issued", "directive_receipt", "corroboration"]
+        },
+        "event_id": {"$ref": "#/$defs/id"},
+        "previous_event_sha256": {"$ref": "#/$defs/sha256"},
+        "payload": {"type": "object"},
+        "event_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

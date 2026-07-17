@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/pf-directive-v1.schema.json",
+  "title": "Cutoff-bound MLE-to-PF directive v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "directive_id",
+    "directive_kind",
+    "snapshot_id",
+    "snapshot_sha256",
+    "source_run_id",
+    "prefix_measurement_log_sha256",
+    "covered_records_sha256",
+    "covered_station_boundaries_sha256",
+    "pf_resolved_config_sha256",
+    "data_cutoff_step",
+    "data_cutoff_station",
+    "cutoff_station_complete",
+    "covered_step_ids",
+    "apply_after_step",
+    "corroboration_min_step",
+    "proposals",
+    "safety_policy",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "directive_id": {"$ref": "#/$defs/id"},
+    "directive_kind": {"enum": ["verification_only", "proposal_only_mh"]},
+    "snapshot_id": {"$ref": "#/$defs/id"},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "source_run_id": {"$ref": "#/$defs/id"},
+    "prefix_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "covered_records_sha256": {"$ref": "#/$defs/sha256"},
+    "covered_station_boundaries_sha256": {"$ref": "#/$defs/sha256"},
+    "pf_resolved_config_sha256": {"$ref": "#/$defs/sha256"},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "data_cutoff_station": {"type": "integer", "minimum": 0},
+    "cutoff_station_complete": {"const": true},
+    "covered_step_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "apply_after_step": {"type": "integer", "minimum": 0},
+    "corroboration_min_step": {"type": "integer", "minimum": 1},
+    "proposals": {"type": "array", "items": {"$ref": "#/$defs/proposal"}},
+    "safety_policy": {
+      "type": "object",
+      "required": [
+        "direct_mle_objective_reweight",
+        "hard_prune_authorized",
+        "future_only_corroboration",
+        "once_only_application",
+        "requires_target_preserving_mh"
+      ],
+      "properties": {
+        "direct_mle_objective_reweight": {"const": false},
+        "hard_prune_authorized": {"const": false},
+        "future_only_corroboration": {"const": true},
+        "once_only_application": {"const": true},
+        "requires_target_preserving_mh": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "xyz": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}]
+    },
+    "proposal": {
+      "type": "object",
+      "required": [
+        "proposal_id",
+        "snapshot_candidate_id",
+        "isotope",
+        "candidate_mean_xyz",
+        "snapshot_strength_cps_1m_metadata",
+        "proposal_kernel"
+      ],
+      "properties": {
+        "proposal_id": {"$ref": "#/$defs/id"},
+        "snapshot_candidate_id": {"$ref": "#/$defs/id"},
+        "isotope": {"type": "string", "minLength": 1},
+        "candidate_mean_xyz": {"$ref": "#/$defs/xyz"},
+        "snapshot_strength_cps_1m_metadata": {"type": "number", "minimum": 0},
+        "proposal_kernel": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": [
+                "family",
+                "position_sigma_xyz_m",
+                "defensive_weight",
+                "candidate_weight"
+              ],
+              "properties": {
+                "family": {"const": "defensive_truncated_gaussian_position"},
+                "position_sigma_xyz_m": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "prefixItems": [
+                    {"type": "number", "exclusiveMinimum": 0},
+                    {"type": "number", "exclusiveMinimum": 0},
+                    {"type": "number", "exclusiveMinimum": 0}
+                  ]
+                },
+                "defensive_weight": {
+                  "type": "number", "exclusiveMinimum": 0, "maximum": 1
+                },
+                "candidate_weight": {"type": "number", "exclusiveMinimum": 0}
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

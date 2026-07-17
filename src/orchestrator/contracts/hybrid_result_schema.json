@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/hybrid-result-v1.schema.json",
+  "title": "Causal PF+MLE hybrid result manifest v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "hybrid_result_id",
+    "hybrid_run_id",
+    "source_run_id",
+    "milestone",
+    "status",
+    "hybrid_mode",
+    "measurement_log",
+    "estimator_roles",
+    "artifacts",
+    "authoritative_report",
+    "verification_summary",
+    "safety",
+    "truth_isolation",
+    "limitations",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "hybrid_result_id": {"$ref": "#/$defs/id"},
+    "hybrid_run_id": {"$ref": "#/$defs/id"},
+    "source_run_id": {"$ref": "#/$defs/id"},
+    "milestone": {"const": "pf_mle_hybrid_v1"},
+    "status": {"const": "complete"},
+    "hybrid_mode": {"enum": ["verification_only", "proposal_only_mh"]},
+    "measurement_log": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "source_measurement_log_sha256",
+        "inference_measurement_log_sha256",
+        "source_record_count",
+        "inference_record_count",
+        "derivation_kind",
+        "final_step_id",
+        "station_boundary_schedule_sha256"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "source_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+        "inference_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+        "source_record_count": {"type": "integer", "minimum": 1},
+        "inference_record_count": {"type": "integer", "minimum": 1},
+        "derivation_kind": {"const": "predeclared_station_boundary_markers_only"},
+        "final_step_id": {"type": "integer", "minimum": 0},
+        "station_boundary_schedule_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "estimator_roles": {
+      "type": "object",
+      "required": ["online_pf", "causal_prefix_mle", "final_count_diagnostic", "final_report"],
+      "properties": {
+        "online_pf": {
+          "type": "object",
+          "required": [
+            "estimator_family",
+            "role",
+            "final_estimate_source",
+            "uses_all_history_batch_fit"
+          ],
+          "properties": {
+            "estimator_family": {"const": "particle_filter"},
+            "role": {"const": "online_history_uncertainty_and_proposal_consumer"},
+            "final_estimate_source": {"const": "pf_posterior"},
+            "uses_all_history_batch_fit": {"const": false}
+          },
+          "additionalProperties": false
+        },
+        "causal_prefix_mle": {
+          "type": "object",
+          "required": [
+            "estimator_family",
+            "estimator_variant",
+            "role",
+            "fit_scope",
+            "warm_start_semantics"
+          ],
+          "properties": {
+            "estimator_family": {"const": "surface_mle"},
+            "estimator_variant": {"const": "count"},
+            "role": {"const": "proposal_metadata_and_future_verification"},
+            "fit_scope": {"const": "station_complete_observation_prefix"},
+            "warm_start_semantics": {"const": "initialization_only_full_prefix_objective"}
+          },
+          "additionalProperties": false
+        },
+        "final_count_diagnostic": {"$ref": "#/$defs/cold_full_mle_role"},
+        "final_report": {"$ref": "#/$defs/cold_full_mle_role"}
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "final_pf_result_sha256",
+        "final_count_mle_result_sha256",
+        "final_spectral_mle_result_sha256",
+        "hybrid_ledger_summary_sha256",
+        "verification_queue_sha256",
+        "ledger_event_count",
+        "ledger_last_event_sha256",
+        "snapshots",
+        "directives",
+        "receipts",
+        "future_candidate_scores",
+        "planning_recommendations"
+      ],
+      "properties": {
+        "final_pf_result_sha256": {"$ref": "#/$defs/sha256"},
+        "final_count_mle_result_sha256": {"$ref": "#/$defs/sha256"},
+        "final_spectral_mle_result_sha256": {"$ref": "#/$defs/sha256"},
+        "hybrid_ledger_summary_sha256": {"$ref": "#/$defs/sha256"},
+        "verification_queue_sha256": {"$ref": "#/$defs/sha256"},
+        "ledger_event_count": {"type": "integer", "minimum": 0},
+        "ledger_last_event_sha256": {"$ref": "#/$defs/sha256"},
+        "snapshots": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/snapshot_ref"}
+        },
+        "directives": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/directive_ref"}
+        },
+        "receipts": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/receipt_ref"}
+        },
+        "future_candidate_scores": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/future_score_ref"}
+        },
+        "planning_recommendations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/planning_recommendation_ref"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "authoritative_report": {
+      "type": "object",
+      "required": [
+        "estimator_family",
+        "estimator_variant",
+        "fit_scope",
+        "initialization",
+        "candidate_domain",
+        "uses_pf_state",
+        "uses_pf_candidates",
+        "result_sha256",
+        "converged",
+        "objective_value",
+        "poisson_deviance",
+        "hotspot_clusters"
+      ],
+      "properties": {
+        "estimator_family": {"const": "surface_mle"},
+        "estimator_variant": {"const": "spectral"},
+        "fit_scope": {"const": "full_measurement_log"},
+        "initialization": {"const": "cold"},
+        "candidate_domain": {"const": "complete_surface_dictionary"},
+        "uses_pf_state": {"const": false},
+        "uses_pf_candidates": {"const": false},
+        "result_sha256": {"$ref": "#/$defs/sha256"},
+        "converged": {"const": true},
+        "objective_value": {"type": "number"},
+        "poisson_deviance": {"type": "number", "minimum": 0},
+        "hotspot_clusters": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/cluster"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "verification_summary": {
+      "type": "object",
+      "required": [
+        "total",
+        "pending",
+        "verified",
+        "quarantined",
+        "evidence_family",
+        "threshold_quantity"
+      ],
+      "properties": {
+        "total": {"type": "integer", "minimum": 0},
+        "pending": {"type": "integer", "minimum": 0},
+        "verified": {"type": "integer", "minimum": 0},
+        "quarantined": {"type": "integer", "minimum": 0},
+        "evidence_family": {
+          "const": "frozen_count_snapshot_cluster_log_predictive_ratio"
+        },
+        "threshold_quantity": {
+          "const": "cumulative_log_predictive_likelihood_ratio"
+        }
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "causal_prefix_mle",
+        "station_complete_cutoffs",
+        "once_only_directives",
+        "future_only_verification",
+        "all_applied_proposals_target_preserving",
+        "target_preserving_fixed_cardinality_mh_performed",
+        "feedback_changes_cardinality",
+        "direct_mle_objective_reweight_performed",
+        "hard_prune_performed",
+        "final_report_uses_pf_state",
+        "final_report_uses_pf_candidates",
+        "pure_pf_baseline_path_preserved",
+        "pure_mle_baseline_path_preserved",
+        "planner_recommendations_authorize_actuation"
+      ],
+      "properties": {
+        "causal_prefix_mle": {"const": true},
+        "station_complete_cutoffs": {"const": true},
+        "once_only_directives": {"const": true},
+        "future_only_verification": {"const": true},
+        "all_applied_proposals_target_preserving": {"const": true},
+        "target_preserving_fixed_cardinality_mh_performed": {"type": "boolean"},
+        "feedback_changes_cardinality": {"const": false},
+        "direct_mle_objective_reweight_performed": {"const": false},
+        "hard_prune_performed": {"const": false},
+        "final_report_uses_pf_state": {"const": false},
+        "final_report_uses_pf_candidates": {"const": false},
+        "pure_pf_baseline_path_preserved": {"const": true},
+        "pure_mle_baseline_path_preserved": {"const": true},
+        "planner_recommendations_authorize_actuation": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "truth_isolation": {
+      "type": "object",
+      "required": [
+        "truth_passed_to_estimator_commands",
+        "truth_read_during_hybrid_inference",
+        "all_inference_outputs_validated_before_evaluation"
+      ],
+      "properties": {
+        "truth_passed_to_estimator_commands": {"const": false},
+        "truth_read_during_hybrid_inference": {"const": false},
+        "all_inference_outputs_validated_before_evaluation": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "object",
+      "required": [
+        "rj_birth_death_implemented",
+        "hard_prune_implemented",
+        "direct_mle_reweight_implemented",
+        "live_closed_loop_planner_control_implemented",
+        "algorithmic_planner_recommendation_implemented",
+        "planner_scope",
+        "fixed_cardinality_position_relocation_only"
+      ],
+      "properties": {
+        "rj_birth_death_implemented": {"const": false},
+        "hard_prune_implemented": {"const": false},
+        "direct_mle_reweight_implemented": {"const": false},
+        "live_closed_loop_planner_control_implemented": {"const": false},
+        "algorithmic_planner_recommendation_implemented": {"const": true},
+        "planner_scope": {"const": "offline_replay_recommendation_no_actuation"},
+        "fixed_cardinality_position_relocation_only": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "orchestrator_commit",
+        "hybrid_config_sha256",
+        "pin_registry_sha256",
+        "execution_evidence_sha256"
+      ],
+      "properties": {
+        "orchestrator_commit": {"type": "string", "minLength": 1},
+        "hybrid_config_sha256": {"$ref": "#/$defs/sha256"},
+        "pin_registry_sha256": {"$ref": "#/$defs/sha256"},
+        "execution_evidence_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "cold_full_mle_role": {
+      "type": "object",
+      "required": [
+        "estimator_family",
+        "estimator_variant",
+        "role",
+        "fit_scope",
+        "initialization",
+        "uses_pf_state",
+        "uses_pf_candidates"
+      ],
+      "properties": {
+        "estimator_family": {"const": "surface_mle"},
+        "estimator_variant": {"enum": ["count", "spectral"]},
+        "role": {"enum": ["diagnostic", "authoritative_final_report"]},
+        "fit_scope": {"const": "full_measurement_log"},
+        "initialization": {"const": "cold"},
+        "uses_pf_state": {"const": false},
+        "uses_pf_candidates": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "snapshot_ref": {
+      "type": "object",
+      "required": [
+        "snapshot_id",
+        "sha256",
+        "data_cutoff_step",
+        "data_cutoff_station",
+        "warm_start_used"
+      ],
+      "properties": {
+        "snapshot_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "data_cutoff_step": {"type": "integer", "minimum": 0},
+        "data_cutoff_station": {"type": "integer", "minimum": 0},
+        "warm_start_used": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "directive_ref": {
+      "type": "object",
+      "required": [
+        "directive_id",
+        "sha256",
+        "snapshot_id",
+        "data_cutoff_step",
+        "directive_kind",
+        "proposal_count"
+      ],
+      "properties": {
+        "directive_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "snapshot_id": {"$ref": "#/$defs/id"},
+        "data_cutoff_step": {"type": "integer", "minimum": 0},
+        "directive_kind": {"enum": ["verification_only", "proposal_only_mh"]},
+        "proposal_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "receipt_ref": {
+      "type": "object",
+      "required": ["receipt_id", "sha256", "directive_id", "status"],
+      "properties": {
+        "receipt_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "directive_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["applied", "rejected"]}
+      },
+      "additionalProperties": false
+    },
+    "future_score_ref": {
+      "type": "object",
+      "required": ["snapshot_id", "sha256", "future_step_ids"],
+      "properties": {
+        "snapshot_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "future_step_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": false
+    },
+    "planning_recommendation_ref": {
+      "type": "object",
+      "required": [
+        "recommendation_id",
+        "sha256",
+        "data_cutoff_step",
+        "data_cutoff_station",
+        "causal_planning_request_sha256",
+        "selected_action",
+        "robot_actuation_authorized"
+      ],
+      "properties": {
+        "recommendation_id": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "data_cutoff_step": {"type": "integer", "minimum": 0},
+        "data_cutoff_station": {"type": "integer", "minimum": 0},
+        "causal_planning_request_sha256": {"$ref": "#/$defs/sha256"},
+        "selected_action": {
+          "type": "object",
+          "required": [
+            "candidate_index",
+            "dsspp_filtered_pose_index",
+            "pose_xyz",
+            "detector_height_m",
+            "shield_program",
+            "score"
+          ],
+          "properties": {
+            "candidate_index": {"type": "integer", "minimum": 0},
+            "dsspp_filtered_pose_index": {"type": "integer", "minimum": 0},
+            "pose_xyz": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {"type": "number"},
+                {"type": "number"},
+                {"type": "number"}
+              ]
+            },
+            "detector_height_m": {"type": "number"},
+            "shield_program": {"type": "object"},
+            "score": {"type": "number"}
+          },
+          "additionalProperties": false
+        },
+        "robot_actuation_authorized": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "cluster": {
+      "type": "object",
+      "required": [
+        "cluster_id",
+        "isotope",
+        "centroid_xyz",
+        "integrated_strength_cps_1m",
+        "surface_kinds",
+        "patch_ids"
+      ],
+      "properties": {
+        "cluster_id": {"type": "integer", "minimum": 0},
+        "isotope": {"type": "string", "minLength": 1},
+        "centroid_xyz": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}]
+        },
+        "integrated_strength_cps_1m": {"type": "number", "minimum": 0},
+        "surface_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "patch_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

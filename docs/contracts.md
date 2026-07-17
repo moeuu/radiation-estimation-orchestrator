@@ -107,10 +107,50 @@ mirror diagnostics. Patch IDs are unique and nonnegative; patch centroids and st
 are finite; and every cluster isotope, patch membership, surface kind, integrated
 strength, and strength-weighted centroid is cross-checked against the NPZ arrays.
 
-## Reserved MLESnapshot
+## Hybrid contracts
 
-The schema reserves `data_cutoff_step`, `data_cutoff_station`, sorted unique
-`covered_step_ids`, result/input hashes, clusters, and fit diagnostics. It is not called
-by the v1 benchmark. Any later hybrid milestone must ensure coverage ends exactly at
-the cutoff and that a snapshot cannot cause observations at or before the cutoff to be
-applied to PF weights a second time.
+The original MLESnapshot v1 remains readable for compatibility. The executable hybrid
+uses MLESnapshot v2, which binds a surface-MLE result to the exact station-complete
+MeasurementLog prefix through `source_run_id`, `covered_step_ids`, prefix-log hash,
+neutral covered-record hash, and covered station-boundary hash. Predicted observations
+must cover exactly the declared prefix. Warm-start lineage names the prior result and
+does not change the requirement to optimize the full current-prefix objective.
+
+PFDirective v1 binds proposals to one validated snapshot and one resolved PF
+configuration. `verification_only` directives register candidates without a proposal
+kernel. `proposal_only_mh` directives require a density-defined defensive truncated
+Gaussian position kernel and target-preserving MH correction. All directives forbid
+direct MLE-objective reweighting and hard pruning. A PFDirectiveReceipt accounts for
+every proposal and records the before/after state hashes, MH decision evidence, and
+the first legal future-observation step. Candidate outcomes contain aggregate
+attempt/accept/reject/not-sampled counts across eligible PF particles; mixed decisions
+are never compressed to a representative particle. Scalar MH ratio/draw evidence is
+present only when exactly one particle attempted that proposal.
+
+FutureCandidateScore v1 binds a frozen prefix snapshot and exact later prefix. It
+records per-candidate, per-step full-versus-cluster-zero count log predictive ratios;
+future rows are never refit and every ledger corroboration is hash-bound to one score
+row.
+
+HybridPlanningRequest/Recommendation v1 binds a prefix-only PF state to an ordered,
+collision/reachability-attested XYZ candidate set. The recommendation echoes the exact
+request hash, excludes quarantined external modes, proves PF state bytes are unchanged,
+and requires `robot_actuation_authorized=false`.
+
+HybridLedgerSummary v1 is an append-only hash chain over snapshot registration,
+directive issuance, exactly one receipt per directive, and candidate corroboration.
+Corroboration may use only a unique step strictly after the source snapshot cutoff.
+
+HybridResult v1 (`hybrid_result.json`) records separate hashes for the user-supplied
+source log and its inference-log derivative, whose only permitted change is adding
+predeclared station-boundary completion markers. Record count, source run ID, step
+sequence, and station schedule are checked across that derivation. It then binds the
+complete run to validated final PF, cold count-MLE, cold spectral-MLE, ledger,
+snapshot, directive, receipt, future-score, planning-request/recommendation, queue, and
+execution-evidence hashes. The
+cold spectral full-history MLE is explicitly authoritative and its hotspot clusters
+are mirrored in the manifest. Semantic validation checks final cold-fit lineage,
+reference/cutoff consistency, proposal/verification counts, once-only receipts, the
+ledger tail, and the final spectral cluster mirror. The result contract also records
+that v1 has no RJ birth/death, hard prune, direct MLE reweight, or live closed-loop
+planner actuation. See [`hybrid_v1.md`](hybrid_v1.md).

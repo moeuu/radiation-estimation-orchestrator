@@ -27,7 +27,22 @@ _SAFE_ENV_KEYS = (
     "CUDA_VISIBLE_DEVICES",
 )
 _PLACEHOLDERS = frozenset(
-    {"repository", "log_dir", "config", "output_dir", "seed", "profile", "mode"}
+    {
+        "repository",
+        "log_dir",
+        "config",
+        "output_dir",
+        "seed",
+        "relocation_seed",
+        "profile",
+        "mode",
+        "directive_schedule",
+        "initial_estimate",
+        "snapshot",
+        "snapshot_estimate",
+        "planning_request",
+        "stop_after",
+    }
 )
 PRODUCTION_ALLOWED_DIRTY_PREFIXES = (
     "results/",

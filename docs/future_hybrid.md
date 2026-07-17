@@ -1,20 +1,28 @@
-# Future PF+MLE milestone (not implemented)
+# Work beyond hybrid v1
 
-The eventual PF+MLE controller belongs only in this repository. Neither pure estimator
-repository should acquire cross-estimator feedback.
+The first causal PF+MLE hybrid milestone is described in
+[`hybrid_v1.md`](hybrid_v1.md). It implements exact-prefix MLE snapshots, once-only
+directives, corrected fixed-cardinality PF position proposals, future-only candidate
+verification, an observation-use ledger, and a cold full-history MLE final report.
 
-A later, separately versioned milestone may add predictive-deviance monitoring,
-scheduled MLE snapshots, verification queues, quarantined candidates, target-preserving
-rejuvenation proposals, independently corroborated pruning, conflict-hypothesis
-measurement design, and a final full-history MLE.
+The following capabilities remain future work and must not be inferred from the v1
+name or result:
 
-Every MLE snapshot must declare the last covered observation and station. A feedback
-consumer must bind every derived action to that snapshot, apply it at most once, and
-resume sequential PF processing strictly after `data_cutoff_step`. It must never turn a
-snapshot derived from observations `1:t` into a second likelihood update for those same
-observations. Proposal-only moves would additionally require a target-preserving
-Metropolis-Hastings or importance correction.
+- reversible-jump birth/death or another target-preserving trans-dimensional move;
+- evidence-backed pruning with an explicit statistical correction;
+- live closed-loop detector XYZ, height, and shield-program actuation;
+- a conflict-hypothesis planner that affects measurement acquisition;
+- a resumable PF checkpoint contract instead of deterministic prefix replay;
+- direct online spectral-MLE snapshots, if scientifically justified;
+- a mesh-surface extension beyond the current standalone MLE domain.
 
-No scheduler, queue, feedback directive, rejuvenation, pruning, or hybrid planner is
-present in v1. The current `mle_snapshot_schema.json` is a reserved interoperability
-contract, not an active runtime.
+In particular, an MLE objective must never be added to PF log weights for observations
+the PF already processed. Any future cardinality-changing feedback needs a separately
+reviewed proposal density, reverse move, Jacobian where applicable, acceptance rule,
+and an extended observation-use ledger contract. Hard pruning cannot be introduced as
+a configuration shortcut.
+
+Live planning also requires a new milestone: the controller must choose an action
+before its observation exists, bind that decision to the exact PF/MLE information
+cutoff, execute through the measurement runtime, and record the proposed and realized
+action. Offline replay scores or recommendations are not live planner control.

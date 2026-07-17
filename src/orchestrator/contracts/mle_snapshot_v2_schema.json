@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/mle-snapshot-v2.schema.json",
+  "title": "Cutoff-bound surface-MLE snapshot v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "trigger_id",
+    "estimator_family",
+    "estimator_variant",
+    "data_cutoff_step",
+    "data_cutoff_station",
+    "cutoff_station_complete",
+    "covered_step_ids",
+    "source_run_id",
+    "prefix_measurement_log_sha256",
+    "covered_records_sha256",
+    "covered_station_boundaries_sha256",
+    "mle_result_sha256",
+    "warm_start",
+    "clusters",
+    "predicted_observations",
+    "fit_diagnostics",
+    "safety",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "snapshot_id": {"$ref": "#/$defs/id"},
+    "trigger_id": {"$ref": "#/$defs/id"},
+    "estimator_family": {"const": "surface_mle"},
+    "estimator_variant": {"enum": ["count", "spectral"]},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "data_cutoff_station": {"type": "integer", "minimum": 0},
+    "cutoff_station_complete": {"const": true},
+    "covered_step_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "source_run_id": {"$ref": "#/$defs/id"},
+    "prefix_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "covered_records_sha256": {"$ref": "#/$defs/sha256"},
+    "covered_station_boundaries_sha256": {"$ref": "#/$defs/sha256"},
+    "mle_result_sha256": {"$ref": "#/$defs/sha256"},
+    "warm_start": {
+      "type": "object",
+      "required": ["used", "snapshot_id", "mle_result_sha256"],
+      "properties": {
+        "used": {"type": "boolean"},
+        "snapshot_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9._-]+$"},
+        "mle_result_sha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        }
+      },
+      "additionalProperties": false
+    },
+    "clusters": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/cluster"}
+    },
+    "predicted_observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/prediction"}
+    },
+    "fit_diagnostics": {"type": "object"},
+    "safety": {
+      "type": "object",
+      "required": ["direct_mle_objective_reweight", "hard_prune_authorized"],
+      "properties": {
+        "direct_mle_objective_reweight": {"const": false},
+        "hard_prune_authorized": {"const": false}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "xyz": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}]
+    },
+    "cluster": {
+      "type": "object",
+      "required": [
+        "snapshot_candidate_id",
+        "cluster_id",
+        "isotope",
+        "centroid_xyz",
+        "integrated_strength_cps_1m",
+        "surface_kinds",
+        "patch_ids"
+      ],
+      "properties": {
+        "snapshot_candidate_id": {"$ref": "#/$defs/id"},
+        "cluster_id": {"type": "integer", "minimum": 0},
+        "isotope": {"type": "string", "minLength": 1},
+        "centroid_xyz": {"$ref": "#/$defs/xyz"},
+        "integrated_strength_cps_1m": {"type": "number", "minimum": 0},
+        "surface_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "patch_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": false
+    },
+    "prediction": {
+      "type": "object",
+      "required": ["step_id", "isotope_counts"],
+      "properties": {
+        "step_id": {"type": "integer", "minimum": 0},
+        "isotope_counts": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "number", "minimum": 0}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

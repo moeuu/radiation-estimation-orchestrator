@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/pf-directive-receipt-v1.schema.json",
+  "title": "PF directive application receipt v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "directive_id",
+    "directive_sha256",
+    "directive_kind",
+    "consumer_family",
+    "consumer_variant",
+    "data_cutoff_step",
+    "applied_after_step",
+    "status",
+    "pf_state_sha256_before",
+    "pf_state_sha256_after",
+    "candidate_outcomes",
+    "safety_evidence",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_id": {"$ref": "#/$defs/id"},
+    "directive_id": {"$ref": "#/$defs/id"},
+    "directive_sha256": {"$ref": "#/$defs/sha256"},
+    "directive_kind": {"enum": ["verification_only", "proposal_only_mh"]},
+    "consumer_family": {"const": "particle_filter"},
+    "consumer_variant": {"type": "string", "minLength": 1},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "applied_after_step": {"type": "integer", "minimum": 0},
+    "status": {"enum": ["applied", "rejected"], "type": "string"},
+    "pf_state_sha256_before": {"$ref": "#/$defs/sha256"},
+    "pf_state_sha256_after": {"$ref": "#/$defs/sha256"},
+    "candidate_outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "proposal_id",
+          "outcome",
+          "mh_attempt_count",
+          "mh_accepted_count",
+          "mh_rejected_count",
+          "not_sampled_count",
+          "eligible_particle_count",
+          "mh_log_acceptance_ratio",
+          "mh_log_uniform_draw"
+        ],
+        "properties": {
+          "proposal_id": {"$ref": "#/$defs/id"},
+          "outcome": {"enum": ["registered", "mh_accepted", "mh_rejected", "mh_mixed", "not_applied"]},
+          "mh_attempt_count": {"type": "integer", "minimum": 0},
+          "mh_accepted_count": {"type": "integer", "minimum": 0},
+          "mh_rejected_count": {"type": "integer", "minimum": 0},
+          "not_sampled_count": {"type": "integer", "minimum": 0},
+          "eligible_particle_count": {"type": "integer", "minimum": 0},
+          "mh_log_acceptance_ratio": {"type": ["number", "null"]},
+          "mh_log_uniform_draw": {"type": ["number", "null"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "safety_evidence": {
+      "type": "object",
+      "required": [
+        "direct_mle_objective_reweight_performed",
+        "hard_prune_performed",
+        "target_preserving_mh_performed",
+        "reweighted_observation_step_ids",
+        "next_observation_min_step"
+      ],
+      "properties": {
+        "direct_mle_objective_reweight_performed": {"const": false},
+        "hard_prune_performed": {"const": false},
+        "target_preserving_mh_performed": {"type": "boolean"},
+        "reweighted_observation_step_ids": {"type": "array", "maxItems": 0},
+        "next_observation_min_step": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "source_run_id",
+        "covered_records_sha256",
+        "pf_resolved_config_sha256"
+      ],
+      "properties": {
+        "source_run_id": {"$ref": "#/$defs/id"},
+        "covered_records_sha256": {"$ref": "#/$defs/sha256"},
+        "pf_resolved_config_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

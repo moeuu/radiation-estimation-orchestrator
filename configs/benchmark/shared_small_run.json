@@ -10,7 +10,7 @@
   "expected_resolved_estimator_config_sha256": {
     "pf_strict": "0cd576f4029a47f219949225d9a07262c95c532778fa788fd35b43e7328cb6c5",
     "mle_count": "e9d2a350dbd4ec7fcba7802e3b09fd3a3b9ea9bf0cad52baed754458be44cd96",
-    "mle_spectral": "72c13c9d86e3b1928e613b446dce1f2bcdc535ba41d42b1fc034dc07e162f350"
+    "mle_spectral": "0dbb100bf910eb12ab26477db1673307859fb75d55dda8d92cd5cfff942028c6"
   },
   "estimator_configs": {
     "pf": "../estimators/pf_strict_shared_small.json",

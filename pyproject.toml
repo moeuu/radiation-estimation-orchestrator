@@ -36,6 +36,14 @@ packages = ["src/orchestrator"]
 "src/orchestrator/contracts/pf_result_schema.json" = "orchestrator/contracts/pf_result_schema.json"
 "src/orchestrator/contracts/mle_result_schema.json" = "orchestrator/contracts/mle_result_schema.json"
 "src/orchestrator/contracts/mle_snapshot_schema.json" = "orchestrator/contracts/mle_snapshot_schema.json"
+"src/orchestrator/contracts/mle_snapshot_v2_schema.json" = "orchestrator/contracts/mle_snapshot_v2_schema.json"
+"src/orchestrator/contracts/pf_directive_schema.json" = "orchestrator/contracts/pf_directive_schema.json"
+"src/orchestrator/contracts/pf_directive_receipt_schema.json" = "orchestrator/contracts/pf_directive_receipt_schema.json"
+"src/orchestrator/contracts/hybrid_ledger_summary_schema.json" = "orchestrator/contracts/hybrid_ledger_summary_schema.json"
+"src/orchestrator/contracts/hybrid_result_schema.json" = "orchestrator/contracts/hybrid_result_schema.json"
+"src/orchestrator/contracts/future_candidate_score_schema.json" = "orchestrator/contracts/future_candidate_score_schema.json"
+"src/orchestrator/contracts/hybrid_planning_request_schema.json" = "orchestrator/contracts/hybrid_planning_request_schema.json"
+"src/orchestrator/contracts/hybrid_planning_recommendation_schema.json" = "orchestrator/contracts/hybrid_planning_recommendation_schema.json"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

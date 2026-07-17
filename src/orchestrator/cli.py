@@ -19,6 +19,8 @@ from .contracts import (
 )
 from .errors import ContractError
 from .hashing import load_json, sha256_file
+from .hybrid.controller import HybridController
+from .hybrid.run_config import HybridRunConfig
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -29,6 +31,11 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     benchmark = commands.add_parser("benchmark", help="Run the complete three-estimator benchmark.")
     benchmark.add_argument("--config", type=Path, required=True)
+    hybrid = commands.add_parser(
+        "hybrid-replay",
+        help="Run causal prefix MLE plus target-preserving PF relocation replay.",
+    )
+    hybrid.add_argument("--config", type=Path, required=True)
 
     validate_log = commands.add_parser("validate-log", help="Validate MeasurementLog v1.")
     validate_log.add_argument("--run-dir", type=Path, required=True)
@@ -112,6 +119,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "benchmark":
         output = BenchmarkRunner(BenchmarkConfig.load(args.config)).run()
         _print({"status": "complete", "output_directory": output.as_posix()})
+        return 0
+    if args.command == "hybrid-replay":
+        output = HybridController(HybridRunConfig.load(args.config)).run()
+        _print({"status": "inference_complete", "output_directory": output.as_posix()})
         return 0
     if args.command == "validate-log":
         info = validate_measurement_log(args.run_dir)
