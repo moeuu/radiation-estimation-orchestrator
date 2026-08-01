@@ -1,11 +1,20 @@
 # Rotating Shield Estimation Orchestrator
 
 This repository attaches estimator processes to one shared acquisition boundary.
-`moeuu/Rotating-shield-particle-filter` is the sole production owner of Geant4,
-environment construction, detector/shield physics, action execution, and raw
-observation generation. The pure PF, standalone MLE, and PF+MLE controller consume
-its finalized MeasurementLog through subprocess contracts; simulator source is not
-copied into either consumer repository.
+`Rotating-shield-simulation-runtime` is the sole production owner of Geant4,
+environment construction, detector/shield physics, action execution, raw observation
+generation, and MeasurementLog v2 serialization. The pure PF, standalone MLE, and
+PF+MLE controller consume its finalized MeasurementLog; simulator source is not
+copied into any estimator or orchestration repository.
+
+The orchestrator can request acquisition without owning its implementation:
+
+```bash
+uv run rotating-shield-orchestrator acquire --plan /path/to/private-plan.json
+```
+
+The plan may contain source truth for the simulator, but the published MeasurementLog
+does not. Estimator subprocesses receive only that truth-free log.
 
 The repository exposes two controlled paths. The original same-log benchmark
 remains unchanged, and a separate causal offline hybrid replay adds prefix MLE

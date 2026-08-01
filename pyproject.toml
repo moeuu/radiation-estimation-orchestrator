@@ -10,6 +10,7 @@ dependencies = [
   "jsonschema>=4.23,<5",
   "numpy>=2.1,<3",
   "psutil>=6,<8",
+  "rotating-shield-simulation-runtime",
 ]
 
 [project.scripts]
@@ -60,3 +61,6 @@ select = ["E", "F", "I", "B", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
+
+[tool.uv.sources]
+rotating-shield-simulation-runtime = { path = "../Rotating-shield-simulation-runtime", editable = true }

@@ -4,9 +4,10 @@ This repository owns reproducible cross-estimator contracts and benchmarking. It
 also the designated home of a later PF+MLE hybrid milestone, but no hybrid feedback
 controller is implemented in the current active path. Keep these boundaries invariant.
 
-- Never copy particle-filter, MLE, detector, shield, obstacle, spectrum, or transport
-  physics source into this repository. Invoke pinned estimator repositories through
-  subprocess CLI adapters.
+- Never copy particle-filter, MLE, detector, shield, obstacle, spectrum, transport,
+  simulation, environment, observation-generation, or MeasurementLog writer source
+  into this repository. Invoke pinned estimator repositories through subprocess CLI
+  adapters and invoke acquisition through the shared simulation-runtime package.
 - The current milestone is pure comparison only. Do not add MLE-to-PF feedback,
   rejuvenation, pruning, periodic MLE execution, or hybrid planning without a new
   versioned milestone and explicit tests.

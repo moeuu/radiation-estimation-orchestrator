@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .adapters import load_estimator_pins
 from .adapters.base import verify_repository_revision
+from .acquisition import acquire_measurement_log
 from .benchmark import BenchmarkConfig, BenchmarkRunner
 from .conformance import CLIForwardResponseProvider, run_forward_response_conformance
 from .contracts import (
@@ -27,11 +28,16 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rotating-shield-orchestrator",
         description=(
-            "Attach pinned PF/MLE estimators to one PF-owned MeasurementLog without "
-            "duplicating simulation source."
+            "Attach pinned PF/MLE estimators to one shared-runtime MeasurementLog "
+            "without duplicating simulation source."
         ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    acquire = commands.add_parser(
+        "acquire",
+        help="Run a private plan through the shared simulation runtime.",
+    )
+    acquire.add_argument("--plan", type=Path, required=True)
     benchmark = commands.add_parser("benchmark", help="Run the complete three-estimator benchmark.")
     benchmark.add_argument("--config", type=Path, required=True)
     hybrid = commands.add_parser(
@@ -121,7 +127,20 @@ def _print(payload: object) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run one orchestrator command."""
     args = _parser().parse_args(None if argv is None else list(argv))
+    if args.command == "acquire":
+        result = acquire_measurement_log(args.plan)
+        _print(
+            {
+                "status": "complete",
+                "measurement_log_path": result.measurement_log_path.as_posix(),
+                "measurement_log_sha256": result.measurement_log_sha256,
+                "record_count": result.record_count,
+                "run_id": result.run_id,
+            }
+        )
+        return 0
     if args.command == "benchmark":
         output = BenchmarkRunner(BenchmarkConfig.load(args.config)).run()
         _print({"status": "complete", "output_directory": output.as_posix()})
