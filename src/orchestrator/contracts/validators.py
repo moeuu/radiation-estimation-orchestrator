@@ -27,6 +27,7 @@ from orchestrator.hashing import (
 )
 
 SCHEMA_VERSION = 1
+SUPPORTED_MEASUREMENT_LOG_SCHEMA_VERSIONS = frozenset({1, 2})
 MEASUREMENT_REQUIRED_FILES = (
     "run_manifest.json",
     "runtime_config.resolved.json",
@@ -54,7 +55,7 @@ _REALIZED_SOURCE_NAMES = frozenset(
 )
 _REALIZED_SOURCE_FRAGMENTS = ("sourcelayout", "sourcepositions", "pointsources")
 
-OBSERVATION_ARRAYS = frozenset(
+OBSERVATION_BASE_ARRAYS = frozenset(
     {
         "step_id",
         "action_id",
@@ -68,6 +69,10 @@ OBSERVATION_ARRAYS = frozenset(
         "shield_actuation_time_s",
         "energy_bin_edges_keV",
         "spectrum_counts",
+    }
+)
+OBSERVATION_V1_OPTIONAL_ARRAYS = frozenset(
+    {
         "spectrum_variance",
         "spectrum_variance_present",
         "isotope_counts",
@@ -78,6 +83,7 @@ OBSERVATION_ARRAYS = frozenset(
         "isotope_count_covariance_record_present",
     }
 )
+OBSERVATION_ARRAYS = OBSERVATION_BASE_ARRAYS | OBSERVATION_V1_OPTIONAL_ARRAYS
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +96,11 @@ class MeasurementLogInfo:
     arrays: MappingProxyType[str, NDArray[Any]]
     artifact_inventory: MappingProxyType[str, str]
     measurement_log_sha256: str
+
+    @property
+    def schema_version(self) -> int:
+        """Return the validated MeasurementLog schema version."""
+        return int(self.manifest["schema_version"])
 
     @property
     def record_count(self) -> int:
@@ -297,10 +308,16 @@ def _indicates_realized_truth(name: str, *, key: bool) -> bool:
 def _reject_realized_truth(payload: object, *, label: str, location: str = "$") -> None:
     """Recursively reject realized source/truth pointers while allowing model semantics."""
     if isinstance(payload, dict):
+        aggregate_validation_metrics = location.endswith(
+            ".full_spectrum_generative_model.validation.metrics"
+        )
         for raw_key, value in payload.items():
             key = _normalized_name(raw_key)
             child_location = f"{location}.{raw_key}"
-            if _indicates_realized_truth(key, key=True):
+            if (
+                not aggregate_validation_metrics
+                and _indicates_realized_truth(key, key=True)
+            ):
                 raise TruthIsolationError(
                     f"{label} may not expose realized truth at {child_location}."
                 )
@@ -377,10 +394,20 @@ def _check_masked_values(
         raise ContractError(f"Absent entries in {name!r} must use NaN sentinels.")
 
 
-def _validate_forward_manifest(payload: dict[str, object], run_manifest: dict[str, object]) -> None:
+def _validate_forward_manifest(
+    payload: dict[str, object],
+    run_manifest: dict[str, object],
+    *,
+    schema_version: int,
+) -> None:
+    """Validate the matching producer-owned forward-model manifest version."""
     _validate_schema(
         payload,
-        "forward_model_manifest_schema.json",
+        (
+            "forward_model_manifest_v2_schema.json"
+            if schema_version == 2
+            else "forward_model_manifest_schema.json"
+        ),
         label="forward_model_manifest.json",
     )
     for key in (
@@ -450,6 +477,13 @@ def _validate_forward_manifest(payload: dict[str, object], run_manifest: dict[st
             raise ContractError(f"Forward-model line weights for {isotope} must sum to one.")
         spectrum_table[str(isotope)] = spectrum_rows
 
+    if schema_version == 2:
+        # V2 component hashes bind the complete producer-side configuration
+        # and file-backed model assets, not only this line-table projection.
+        # The orchestrator verifies their immutable identity but does not
+        # recreate simulation physics in a second repository.
+        return
+
     assert isinstance(identifiers, dict)
     shield_identifier = identifiers["shield"]
     spectrum_identifier = identifiers["spectrum"]
@@ -468,22 +502,48 @@ def _validate_forward_manifest(payload: dict[str, object], run_manifest: dict[st
 
 
 def _validate_measurement_arrays(
-    arrays: dict[str, NDArray[Any]], *, records: int, bins: int, isotopes: int
+    arrays: dict[str, NDArray[Any]],
+    *,
+    records: int,
+    bins: int,
+    isotopes: int,
+    schema_version: int,
 ) -> None:
-    missing = sorted(OBSERVATION_ARRAYS - arrays.keys())
-    if missing:
-        raise ContractError(f"observations.npz is missing v1 arrays: {missing}")
+    expected_arrays = (
+        OBSERVATION_BASE_ARRAYS if schema_version == 2 else OBSERVATION_ARRAYS
+    )
+    missing = sorted(expected_arrays - arrays.keys())
+    extra = sorted(arrays.keys() - expected_arrays)
+    if missing or extra:
+        raise ContractError(
+            f"observations.npz v{schema_version} schema mismatch; "
+            f"missing={missing}, extra={extra}"
+        )
     if any(_indicates_realized_truth(_normalized_name(name), key=True) for name in arrays):
         raise TruthIsolationError("observations.npz may not embed realized-truth arrays.")
     steps = _array(arrays, "step_id", shape=(records,), dtype=np.int64)
     actions = _array(arrays, "action_id", shape=(records,), dtype=np.int64)
     stations = _array(arrays, "station_id", shape=(records,), dtype=np.int64)
-    if np.any(steps < 0) or np.any(np.diff(steps) <= 0):
-        raise ContractError("step_id must be nonnegative and strictly increasing in causal order.")
-    if np.any(actions < 0) or np.unique(actions).size != records:
-        raise ContractError("action_id must be nonnegative and unique per record.")
-    if np.any(stations < 0) or np.any(np.diff(stations) < 0):
-        raise ContractError("station_id must be nonnegative and nondecreasing.")
+    if schema_version == 2:
+        row_order = np.arange(records, dtype=np.int64)
+        if not np.array_equal(steps, row_order):
+            raise ContractError("MeasurementLog v2 step_id must equal causal row order.")
+        if not np.array_equal(actions, row_order):
+            raise ContractError("MeasurementLog v2 action_id must equal causal row order.")
+        station_delta = np.diff(stations)
+        if stations[0] != 0 or np.any((station_delta < 0) | (station_delta > 1)):
+            raise ContractError(
+                "MeasurementLog v2 station_id must form contiguous zero-based groups."
+            )
+    else:
+        if np.any(steps < 0) or np.any(np.diff(steps) <= 0):
+            raise ContractError(
+                "step_id must be nonnegative and strictly increasing in causal order."
+            )
+        if np.any(actions < 0) or np.unique(actions).size != records:
+            raise ContractError("action_id must be nonnegative and unique per record.")
+        if np.any(stations < 0) or np.any(np.diff(stations) < 0):
+            raise ContractError("station_id must be nonnegative and nondecreasing.")
 
     for name, shape in (
         ("detector_pose_xyz", (records, 3)),
@@ -491,10 +551,15 @@ def _validate_measurement_arrays(
         ("live_time_s", (records,)),
         ("travel_time_s", (records,)),
         ("shield_actuation_time_s", (records,)),
-        ("spectrum_counts", (records, bins)),
     ):
         value = _array(arrays, name, shape=shape, dtype=np.float64)
         _finite(name, value)
+    _array(
+        arrays,
+        "spectrum_counts",
+        shape=(records, bins),
+        dtype=np.int64 if schema_version == 2 else np.float64,
+    )
     quaternion = arrays["detector_quat_wxyz"]
     if not np.allclose(np.linalg.norm(quaternion, axis=1), 1.0, rtol=1e-9, atol=1e-12):
         raise ContractError("detector_quat_wxyz rows must be unit quaternions.")
@@ -512,6 +577,9 @@ def _validate_measurement_arrays(
     _finite("energy_bin_edges_keV", edges)
     if np.any(np.diff(edges) <= 0):
         raise ContractError("energy_bin_edges_keV must be strictly increasing.")
+
+    if schema_version == 2:
+        return
 
     variance = _array(arrays, "spectrum_variance", shape=(records, bins), dtype=np.float64)
     variance_record = _array(arrays, "spectrum_variance_present", shape=(records,), dtype=np.bool_)
@@ -562,11 +630,26 @@ def _validate_measurement_arrays(
 
 
 def validate_measurement_log(root: str | Path) -> MeasurementLogInfo:
-    """Validate a canonical truth-free MeasurementLog v1 bundle."""
+    """Validate canonical truth-free MeasurementLog v1 or raw-spectrum v2."""
     directory = _require_directory(root, MEASUREMENT_REQUIRED_FILES, label="MeasurementLog")
     _reject_truth(directory)
     manifest = load_json(directory / "run_manifest.json")
-    _validate_schema(manifest, "measurement_log_schema.json", label="run_manifest.json")
+    schema_version = manifest.get("schema_version")
+    if schema_version not in SUPPORTED_MEASUREMENT_LOG_SCHEMA_VERSIONS:
+        raise ContractError(
+            "Unsupported MeasurementLog schema_version "
+            f"{schema_version!r}; expected one of "
+            f"{sorted(SUPPORTED_MEASUREMENT_LOG_SCHEMA_VERSIONS)}."
+        )
+    _validate_schema(
+        manifest,
+        (
+            "measurement_log_v2_schema.json"
+            if schema_version == 2
+            else "measurement_log_schema.json"
+        ),
+        label="run_manifest.json",
+    )
     config = load_json(directory / "runtime_config.resolved.json")
     environment = load_json(directory / "environment.json")
     forward = load_json(directory / "forward_model_manifest.json")
@@ -586,7 +669,11 @@ def validate_measurement_log(root: str | Path) -> MeasurementLogInfo:
     forward_hash = sha256_file(directory / "forward_model_manifest.json")
     if forward_hash != manifest["forward_model_manifest_sha256"]:
         raise ContractError("forward_model_manifest_sha256 does not match its artifact.")
-    _validate_forward_manifest(forward, manifest)
+    _validate_forward_manifest(
+        forward,
+        manifest,
+        schema_version=int(schema_version),
+    )
 
     declared_hashes = manifest["artifact_hashes"]
     assert isinstance(declared_hashes, dict)
@@ -608,7 +695,13 @@ def validate_measurement_log(root: str | Path) -> MeasurementLogInfo:
     isotope_names = manifest["isotopes"]
     assert isinstance(isotope_names, list)
     arrays = _load_npz(directory / "observations.npz")
-    _validate_measurement_arrays(arrays, records=records, bins=bins, isotopes=len(isotope_names))
+    _validate_measurement_arrays(
+        arrays,
+        records=records,
+        bins=bins,
+        isotopes=len(isotope_names),
+        schema_version=int(schema_version),
+    )
 
     try:
         lines = (directory / "observation_metadata.jsonl").read_text(encoding="utf-8").splitlines()
@@ -706,6 +799,17 @@ def validate_pf_result(
     diagnostics = load_json(directory / "pf_diagnostics.json")
     _validate_schema(posterior, "pf_result_schema.json", label="pf_posterior.json")
     provenance = _provenance(posterior)
+    measurement_log_schema_version = provenance.get(
+        "measurement_log_schema_version"
+    )
+    if (
+        isinstance(measurement_log_schema_version, bool)
+        or not isinstance(measurement_log_schema_version, int)
+        or measurement_log_schema_version not in SUPPORTED_MEASUREMENT_LOG_SCHEMA_VERSIONS
+    ):
+        raise ContractError(
+            "PF provenance must declare MeasurementLog schema version 1 or 2."
+        )
     observed_variant = str(posterior["estimator_variant"])
     if expected_variant is not None and observed_variant != expected_variant:
         raise ContractError(
@@ -770,10 +874,16 @@ def validate_pf_result(
     if not trace_payloads:
         raise ContractError("pf_trace.jsonl must contain at least one causal snapshot.")
     trace_steps: list[int] = []
+    expected_trace_schema = 2 if measurement_log_schema_version == 2 else SCHEMA_VERSION
+    expected_trace_family = (
+        "pure_particle_filter"
+        if measurement_log_schema_version == 2
+        else "particle_filter"
+    )
     for index, payload in enumerate(trace_payloads):
-        if payload.get("schema_version") != SCHEMA_VERSION:
+        if payload.get("schema_version") != expected_trace_schema:
             raise ContractError(f"PF trace line {index + 1} has unsupported schema_version.")
-        if payload.get("estimator_family") != "particle_filter":
+        if payload.get("estimator_family") != expected_trace_family:
             raise ContractError(f"PF trace line {index + 1} has invalid estimator_family.")
         step = payload.get("step_id")
         if not isinstance(step, int) or isinstance(step, bool) or step < 0:
@@ -785,8 +895,20 @@ def validate_pf_result(
         raise ContractError("PF trace step IDs do not exactly match MeasurementLog causal steps.")
     if expected_record_count is not None and len(trace_payloads) != expected_record_count:
         raise ContractError("PF trace length does not match MeasurementLog record_count.")
-    if diagnostics.get("schema_version") != SCHEMA_VERSION:
-        raise ContractError("pf_diagnostics.json schema_version must be 1.")
+    expected_diagnostics_schema = (
+        2 if measurement_log_schema_version == 2 else SCHEMA_VERSION
+    )
+    if diagnostics.get("schema_version") != expected_diagnostics_schema:
+        raise ContractError(
+            "pf_diagnostics.json schema_version is incompatible with its "
+            "MeasurementLog input."
+        )
+    if diagnostics.get("measurement_log_schema_version") != (
+        measurement_log_schema_version
+    ):
+        raise ContractError(
+            "PF diagnostics MeasurementLog schema version differs from provenance."
+        )
     if (
         expected_record_count is not None
         and diagnostics.get("record_count") != expected_record_count

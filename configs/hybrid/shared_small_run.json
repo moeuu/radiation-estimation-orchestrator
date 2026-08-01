@@ -3,7 +3,7 @@
   "hybrid_run_id": "shared-small-run-hybrid-v1",
   "measurement_log": "../../fixtures/shared_small_run/measurement_log",
   "output_directory": "../../hybrid-results/shared-small-run-hybrid-v1",
-  "pin_registry": "../../PINNED_ESTIMATORS.json",
+  "pin_registry": "../../PINNED_ESTIMATORS_V1_ARCHIVE.json",
   "pf_profile": "pf_strict",
   "random_seed": 20260716,
   "relocation_seed": 20260717,

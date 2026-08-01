@@ -1,17 +1,20 @@
 # Rotating Shield Estimation Orchestrator
 
-This repository is the reproducible ownership boundary between the pure online
-particle filter in `moeuu/Rotating-shield-particle-filter` and the standalone
-all-history surface MLE in `moeuu/3D_estimation`.
+This repository attaches estimator processes to one shared acquisition boundary.
+`moeuu/Rotating-shield-particle-filter` is the sole production owner of Geant4,
+environment construction, detector/shield physics, action execution, and raw
+observation generation. The pure PF, standalone MLE, and PF+MLE controller consume
+its finalized MeasurementLog through subprocess contracts; simulator source is not
+copied into either consumer repository.
 
-The repository now exposes two controlled v1 paths. The original same-log benchmark
+The repository exposes two controlled paths. The original same-log benchmark
 remains unchanged, and a separate causal offline hybrid replay adds prefix MLE
 proposals without changing either pure estimator entry point:
 
 ```text
-truth-free MeasurementLog v1
+truth-free MeasurementLog
     ├── pure PF sequential replay
-    ├── count-domain surface MLE replay
+    ├── count-domain surface MLE replay (v1 archive only)
     └── spectral-domain surface MLE replay
              ↓
     validate contracts → open separate truth → common evaluation → manifest
@@ -36,8 +39,8 @@ hashes, runtime, peak memory, and the complete artifact inventory.
 
 Implemented:
 
-- canonical, filesystem-aware MeasurementLog v1 validation;
-- pure PFResult and standalone MLEResult v1 validation;
+- canonical, filesystem-aware MeasurementLog v1 and raw full-spectrum v2 validation;
+- pure PFResult and standalone MLEResult validation for v1/v2 log provenance;
 - exact-prefix MLESnapshot v2 with cutoff, covered-record, warm-start, and artifact
   lineage;
 - pinned Git revision checks that reject dirty code while inventorying explicitly
@@ -73,6 +76,11 @@ pruning, direct MLE-objective reweighting, or live robot actuation. See
 [`docs/hybrid_v1.md`](docs/hybrid_v1.md) and
 [`docs/future_hybrid.md`](docs/future_hybrid.md).
 
+Hybrid v1 intentionally accepts only archived MeasurementLog v1. It does not project
+raw v2 spectra back into the old count contract. Current v2 PF and spectral-MLE replay
+are connected; a causal raw-spectrum PF+MLE loop requires a separately versioned
+spectral-prefix snapshot and future-score contract.
+
 ## Install and verify
 
 Python 3.12+ and `uv` are required.
@@ -88,7 +96,10 @@ uv run rotating-shield-orchestrator validate-log \
 ## Run the shared benchmark
 
 The estimator checkouts must be at the pinned commits. The default config resolves the
-local sibling paths from `PINNED_ESTIMATORS.json`.
+local sibling paths from the configured registry. `PINNED_ESTIMATORS.json` tracks the
+current raw-v2 PF and spectral-MLE boundary. The bundled v1 smoke benchmark and hybrid
+replay explicitly use `PINNED_ESTIMATORS_V1_ARCHIVE.json`; this avoids pretending that
+the old count-based hybrid accepts raw spectra.
 
 The bundled `shared_small_run` is for contract, isolation, replay, and artifact-pipeline
 testing. Its isotope counts are hand-authored and its spectra only distribute those
@@ -98,7 +109,8 @@ this smoke fixture scientifically. Use a separately provenance-bound real-observ
 or Geant4 MeasurementLog for scientific estimator comparisons.
 
 ```bash
-uv run rotating-shield-orchestrator verify-pins
+uv run rotating-shield-orchestrator verify-pins \
+  --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
 uv run rotating-shield-orchestrator benchmark \
   --config configs/benchmark/shared_small_run.json
 ```
@@ -126,7 +138,8 @@ the environment artifact and ordered candidate set are hash-attested. The result
 algorithmic recommendation only and explicitly cannot authorize robot actuation.
 
 ```bash
-uv run rotating-shield-orchestrator verify-pins
+uv run rotating-shield-orchestrator verify-pins \
+  --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
 uv run rotating-shield-orchestrator hybrid-replay \
   --config configs/hybrid/shared_small_run.json
 ```

@@ -1,6 +1,28 @@
 # Architecture and dependency direction
 
 The orchestrator depends on estimator contracts, never estimator implementations.
+Production simulation has one owner:
+
+```text
+Rotating-shield-particle-filter
+  Geant4 + environment + detector/shield + action execution
+                         │
+                         ▼
+             raw MeasurementLog v2
+                ┌────────┼────────┐
+                ▼        ▼        ▼
+               PF       MLE     PF+MLE
+```
+
+This boundary removes simulator synchronization work. The estimator repositories may
+change inference code independently, but they may not regenerate, reinterpret, or
+silently project observations before consuming the shared log.
+
+For a same-observation comparison, acquisition runs once and every estimator replays
+the identical finalized log. For estimator-controlled planning, PF, MLE, and PF+MLE
+may select different next actions, so their future observations cannot be identical.
+Those missions share the same simulator implementation, resolved physical contract,
+environment-generation rules, and seed policy, but each remains a separate causal run.
 
 ```text
 orchestrator → subprocess CLI → pinned pure-PF checkout
@@ -53,3 +75,8 @@ allowlist.
 The pure benchmark and hybrid replay are independent active paths. Hybrid directives
 cannot enter the pure PF command, and prefix warm starts cannot change the standalone
 MLE objective or complete-surface candidate domain.
+
+The default estimator registry pins the current MeasurementLog-v2 consumers. Archived
+v1 benchmark/hybrid configs name a separate immutable v1 registry. Schema selection is
+therefore explicit in the run config rather than inferred from whatever sibling
+checkout happens to be present.

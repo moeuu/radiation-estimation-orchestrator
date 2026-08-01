@@ -82,7 +82,7 @@
         "estimator_variant": {"enum": ["count", "spectral"]},
         "estimator_repository": {"type": "string", "minLength": 1},
         "estimator_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
-        "measurement_log_schema_version": {"const": 1},
+        "measurement_log_schema_version": {"enum": [1, 2]},
         "measurement_log_sha256": {"$ref": "#/$defs/sha256"},
         "config_sha256": {"$ref": "#/$defs/sha256"},
         "resolved_estimator_config_sha256": {"$ref": "#/$defs/sha256"},

@@ -48,6 +48,15 @@ class PFCLIAdapter:
         seed: int,
         profile: str = "pf_strict",
     ) -> AdapterExecution:
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "PF pin expects MeasurementLog schema version "
+                f"{self.pin.expected_measurement_log_schema_version}, got "
+                f"{measurement_log.schema_version}."
+            )
         if profile not in {"pf_strict", "pf_profiled", "pf_online_profiled"}:
             raise ValueError(f"Unsupported pure-PF profile: {profile!r}")
         config = Path(config_path).resolve()

@@ -26,7 +26,10 @@ from .hybrid.run_config import HybridRunConfig
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rotating-shield-orchestrator",
-        description="Pinned same-log PF/MLE benchmarking without estimator source duplication.",
+        description=(
+            "Attach pinned PF/MLE estimators to one PF-owned MeasurementLog without "
+            "duplicating simulation source."
+        ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
     benchmark = commands.add_parser("benchmark", help="Run the complete three-estimator benchmark.")
@@ -37,7 +40,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     hybrid.add_argument("--config", type=Path, required=True)
 
-    validate_log = commands.add_parser("validate-log", help="Validate MeasurementLog v1.")
+    validate_log = commands.add_parser(
+        "validate-log",
+        help="Validate MeasurementLog v1 or raw full-spectrum v2.",
+    )
     validate_log.add_argument("--run-dir", type=Path, required=True)
     validate_pf = commands.add_parser("validate-pf-result", help="Validate PFResult v1.")
     validate_pf.add_argument("--result-dir", type=Path, required=True)
@@ -129,7 +135,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print(
             {
                 "status": "valid",
-                "schema_version": 1,
+                "schema_version": info.schema_version,
                 "record_count": info.record_count,
                 "measurement_log_sha256": info.measurement_log_sha256,
             }

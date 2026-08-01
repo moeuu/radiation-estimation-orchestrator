@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/measurement-log-v2.schema.json",
+  "title": "Raw full-spectrum MeasurementLog run manifest v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "record_count",
+    "repository_commit",
+    "resolved_config_sha256",
+    "forward_model_manifest_sha256",
+    "source_rate_model",
+    "source_rate_semantics",
+    "isotopes",
+    "environment",
+    "obstacle_layout_path",
+    "source_layout_path",
+    "sim_backend",
+    "observation_model",
+    "energy_bin_count",
+    "energy_min_keV",
+    "energy_max_keV",
+    "bin_width_keV",
+    "full_spectrum_contract_hash_sha256",
+    "full_spectrum_contract_schema_version",
+    "model_identifiers",
+    "index_conventions",
+    "artifact_hashes",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "run_id": {"type": "string", "minLength": 1},
+    "record_count": {"type": "integer", "minimum": 1},
+    "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "resolved_config_sha256": {"$ref": "#/$defs/sha256"},
+    "forward_model_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "source_rate_model": {"const": "detector_cps_1m"},
+    "source_rate_semantics": {
+      "type": "object",
+      "required": ["quantity", "unit", "normalization_distance_m"],
+      "properties": {
+        "quantity": {"const": "expected_pre_dead_time_detector_pulse_rate"},
+        "unit": {"const": "cps"},
+        "normalization_distance_m": {"const": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "isotopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "environment": {"type": "object"},
+    "obstacle_layout_path": {"type": ["string", "null"]},
+    "source_layout_path": {"type": "null"},
+    "sim_backend": {"type": "string", "minLength": 1},
+    "observation_model": {"const": "joint_full_spectrum_generative"},
+    "energy_bin_count": {"type": "integer", "minimum": 1},
+    "energy_min_keV": {"type": "number"},
+    "energy_max_keV": {"type": "number"},
+    "bin_width_keV": {"type": "number", "exclusiveMinimum": 0},
+    "full_spectrum_contract_hash_sha256": {"$ref": "#/$defs/sha256"},
+    "full_spectrum_contract_schema_version": {"type": "integer", "minimum": 1},
+    "model_identifiers": {"$ref": "#/$defs/modelIdentifiers"},
+    "index_conventions": {
+      "type": "object",
+      "required": ["record_order", "step_id", "action_id", "station_id"],
+      "properties": {
+        "record_order": {"const": "causal_step_order"},
+        "step_id": {"const": "zero_based_strictly_increasing"},
+        "action_id": {"const": "zero_based_unique_measurement_action"},
+        "station_id": {"const": "zero_based_nondecreasing_station_group"}
+      },
+      "additionalProperties": false
+    },
+    "artifact_hashes": {
+      "type": "object",
+      "required": [
+        "runtime_config.resolved.json",
+        "environment.json",
+        "forward_model_manifest.json",
+        "observations.npz",
+        "observation_metadata.jsonl",
+        "repository_commit.txt"
+      ],
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "modelIdentifier": {
+      "type": "object",
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "modelIdentifiers": {
+      "type": "object",
+      "required": ["detector", "shield", "environment", "obstacle", "transport", "spectrum"],
+      "properties": {
+        "detector": {"$ref": "#/$defs/modelIdentifier"},
+        "shield": {"$ref": "#/$defs/modelIdentifier"},
+        "environment": {"$ref": "#/$defs/modelIdentifier"},
+        "obstacle": {"$ref": "#/$defs/modelIdentifier"},
+        "transport": {"$ref": "#/$defs/modelIdentifier"},
+        "spectrum": {"$ref": "#/$defs/modelIdentifier"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

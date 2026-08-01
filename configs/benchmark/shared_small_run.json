@@ -4,7 +4,7 @@
   "measurement_log": "../../fixtures/shared_small_run/measurement_log",
   "truth": "../../fixtures/shared_small_run/evaluation/truth.json",
   "output_directory": "../../benchmark-results/shared-small-run-v1",
-  "pin_registry": "../../PINNED_ESTIMATORS.json",
+  "pin_registry": "../../PINNED_ESTIMATORS_V1_ARCHIVE.json",
   "pf_profile": "pf_strict",
   "random_seed": 20260716,
   "expected_resolved_estimator_config_sha256": {

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/forward-model-manifest-v2.schema.json",
+  "title": "Full-spectrum ForwardModelManifest v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "repository_commit",
+    "resolved_config_sha256",
+    "source_rate_model",
+    "source_rate_semantics",
+    "units",
+    "response_semantics",
+    "line_mu_by_isotope",
+    "model_identifiers"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "resolved_config_sha256": {"$ref": "#/$defs/sha256"},
+    "source_rate_model": {"const": "detector_cps_1m"},
+    "source_rate_semantics": {
+      "type": "object",
+      "required": ["quantity", "unit", "normalization_distance_m"],
+      "properties": {
+        "quantity": {"const": "expected_pre_dead_time_detector_pulse_rate"},
+        "unit": {"const": "cps"},
+        "normalization_distance_m": {"const": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "units": {
+      "type": "object",
+      "required": ["distance", "time", "energy", "source_strength", "linear_attenuation"],
+      "properties": {
+        "distance": {"const": "m"},
+        "time": {"const": "s"},
+        "energy": {"const": "keV"},
+        "source_strength": {"const": "detector_cps_1m"},
+        "linear_attenuation": {"const": "cm^-1"}
+      },
+      "additionalProperties": false
+    },
+    "response_semantics": {
+      "type": "object",
+      "required": [
+        "distance_attenuation",
+        "detector_geometry",
+        "shield_attenuation",
+        "obstacle_attenuation",
+        "live_time_scaling",
+        "line_resolved_response",
+        "observation_distribution"
+      ],
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "line_mu_by_isotope": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {"$ref": "#/$defs/lineModel"}
+      }
+    },
+    "model_identifiers": {"$ref": "#/$defs/modelIdentifiers"}
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lineModel": {
+      "type": "object",
+      "required": ["energy_keV", "weight", "fe", "pb"],
+      "properties": {
+        "energy_keV": {"type": "number", "exclusiveMinimum": 0},
+        "weight": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "fe": {"type": "number", "minimum": 0},
+        "pb": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "modelIdentifier": {
+      "type": "object",
+      "required": ["id", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "modelIdentifiers": {
+      "type": "object",
+      "required": ["detector", "shield", "environment", "obstacle", "transport", "spectrum"],
+      "properties": {
+        "detector": {"$ref": "#/$defs/modelIdentifier"},
+        "shield": {"$ref": "#/$defs/modelIdentifier"},
+        "environment": {"$ref": "#/$defs/modelIdentifier"},
+        "obstacle": {"$ref": "#/$defs/modelIdentifier"},
+        "transport": {"$ref": "#/$defs/modelIdentifier"},
+        "spectrum": {"$ref": "#/$defs/modelIdentifier"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

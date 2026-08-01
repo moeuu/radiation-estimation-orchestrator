@@ -45,6 +45,15 @@ class MLECLIAdapter:
         output_dir: str | Path,
         execution_dir: str | Path,
     ) -> AdapterExecution:
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "MLE pin expects MeasurementLog schema version "
+                f"{self.pin.expected_measurement_log_schema_version}, got "
+                f"{measurement_log.schema_version}."
+            )
         command_mode = {"count": "replay", "spectral": "fit-spectrum"}.get(mode)
         if command_mode is None:
             raise ValueError(f"Unsupported MLE mode: {mode!r}")

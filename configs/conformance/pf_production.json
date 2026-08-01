@@ -1,7 +1,7 @@
 {
   "provider": "particle_filter",
   "repository_path": "../../../Rotating-shield-particle-filter",
-  "revision": "ab62f7fb34965ca859f9c83919d03dc8d5536f29",
+  "revision": "4093c6df80cdb2c6a868d61d50fe1ace97172857",
   "revision_type": "commit",
   "require_clean": true,
   "timeout_s": 600,

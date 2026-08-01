@@ -285,6 +285,69 @@ def test_result_contracts_accept_complete_subprocess_outputs(benchmark_output: P
     assert spectral.mode == "spectral"
 
 
+def test_pf_result_accepts_raw_measurement_log_v2_provenance(
+    benchmark_output: Path,
+    tmp_path: Path,
+) -> None:
+    """Current PF replay artifacts remain valid behind the shared v2 log."""
+    copied = tmp_path / "pf-result-v2"
+    shutil.copytree(benchmark_output / "results" / "pf_strict", copied)
+    posterior_path = copied / "pf_posterior.json"
+    posterior = load_json(posterior_path)
+    provenance = posterior["provenance"]
+    assert isinstance(provenance, dict)
+    provenance["measurement_log_schema_version"] = 2
+    provenance["planner_belief_sources"] = ["joint_pf_particles"]
+    write_json_atomic(posterior_path, posterior, overwrite=True)
+
+    trace_path = copied / "pf_trace.jsonl"
+    transformed_trace = []
+    for line in trace_path.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        row["schema_version"] = 2
+        row["estimator_family"] = "pure_particle_filter"
+        transformed_trace.append(json.dumps(row, sort_keys=True, separators=(",", ":")))
+    trace_path.write_text("\n".join(transformed_trace) + "\n", encoding="utf-8")
+
+    diagnostics_path = copied / "pf_diagnostics.json"
+    diagnostics = load_json(diagnostics_path)
+    diagnostics["schema_version"] = 2
+    diagnostics["measurement_log_schema_version"] = 2
+    write_json_atomic(diagnostics_path, diagnostics, overwrite=True)
+
+    result = validate_pf_result(copied)
+
+    assert result.posterior["provenance"]["measurement_log_schema_version"] == 2
+
+
+def test_mle_result_accepts_raw_measurement_log_v2_provenance(
+    benchmark_output: Path,
+    tmp_path: Path,
+) -> None:
+    """Spectral MLE results may bind directly to a shared raw v2 log."""
+    copied = tmp_path / "mle-result-v2"
+    shutil.copytree(benchmark_output / "results" / "mle_spectral", copied)
+    diagnostics_path = copied / "mle_diagnostics.json"
+    diagnostics = load_json(diagnostics_path)
+    nested = diagnostics["diagnostics"]
+    assert isinstance(nested, dict)
+    provenance = nested["provenance"]
+    assert isinstance(provenance, dict)
+    provenance["measurement_log_schema_version"] = 2
+    write_json_atomic(diagnostics_path, diagnostics, overwrite=True)
+
+    with np.load(copied / "mle_estimate.npz", allow_pickle=False) as archive:
+        arrays = {name: np.array(archive[name], copy=True) for name in archive.files}
+    arrays["diagnostics_sha256"] = np.asarray(sha256_file(diagnostics_path))
+    np.savez(copied / "mle_estimate.npz", **arrays)
+
+    result = validate_mle_result(copied, expected_mode="spectral")
+
+    assert result.diagnostics["diagnostics"]["provenance"][
+        "measurement_log_schema_version"
+    ] == 2
+
+
 def test_pf_result_must_match_requested_profile(benchmark_output: Path, tmp_path: Path) -> None:
     copied = tmp_path / "pf-result"
     shutil.copytree(benchmark_output / "results" / "pf_strict", copied)

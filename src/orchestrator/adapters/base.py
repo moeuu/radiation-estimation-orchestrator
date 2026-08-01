@@ -174,11 +174,12 @@ def load_estimator_pins(path: str | Path) -> dict[str, EstimatorPin]:
             raise ContractError(
                 f"Estimator {name!r} declares a release tag but revision_type is commit."
             )
-        if (
-            pin.expected_measurement_log_schema_version != 1
-            or pin.expected_result_schema_version != 1
-        ):
-            raise ContractError(f"Estimator {name!r} must currently target v1 contracts.")
+        if pin.expected_measurement_log_schema_version not in {1, 2}:
+            raise ContractError(
+                f"Estimator {name!r} must target MeasurementLog v1 or v2."
+            )
+        if pin.expected_result_schema_version != 1:
+            raise ContractError(f"Estimator {name!r} must target result schema v1.")
         result[name] = pin
     return result
 

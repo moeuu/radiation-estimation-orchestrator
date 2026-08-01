@@ -60,6 +60,15 @@ class HybridPFCLIAdapter:
         profile: str = "pf_strict",
     ) -> AdapterExecution:
         """Replay exactly ``stop_after`` rows and apply cutoff-bound directives."""
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "Hybrid PF pin expects MeasurementLog schema version "
+                f"{self.pin.expected_measurement_log_schema_version}, got "
+                f"{measurement_log.schema_version}."
+            )
         schedule = Path(directive_schedule_path).resolve()
         if schedule.is_symlink() or not schedule.is_file():
             raise FileNotFoundError(f"Directive schedule is invalid: {schedule}")

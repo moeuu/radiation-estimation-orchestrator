@@ -60,6 +60,13 @@ class HybridPlanningCLIAdapter:
         profile: str,
     ) -> AdapterExecution:
         """Return one algorithmic recommendation without authorizing actuation."""
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "Hybrid planning PF pin and MeasurementLog schema versions differ."
+            )
         request = Path(planning_request_path).resolve()
         schedule = Path(directive_schedule_path).resolve()
         for path, label in ((request, "planning request"), (schedule, "directive schedule")):

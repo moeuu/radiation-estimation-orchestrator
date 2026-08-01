@@ -102,6 +102,13 @@ class HybridController:
         staging.mkdir()
         try:
             source_log = validate_measurement_log(config.measurement_log_path)
+            if source_log.schema_version != 1:
+                raise ContractError(
+                    "Causal hybrid v1 requires the archived projected-count "
+                    "MeasurementLog v1. Raw full-spectrum v2 must use a separately "
+                    "versioned spectral-prefix hybrid contract; deriving legacy isotope "
+                    "counts inside the orchestrator is forbidden."
+                )
             boundaries = StationBoundarySchedule.create(
                 source_run_id=str(source_log.manifest["run_id"]),
                 station_end_steps=config.station_end_steps,

@@ -3,19 +3,19 @@
   "particle_filter": {
     "repository": "https://github.com/moeuu/Rotating-shield-particle-filter.git",
     "local_path_hint": "../Rotating-shield-particle-filter",
-    "revision": "4093c6df80cdb2c6a868d61d50fe1ace97172857",
+    "revision": "ab62f7fb34965ca859f9c83919d03dc8d5536f29",
     "revision_type": "commit",
     "release_tag": null,
-    "expected_measurement_log_schema_version": 2,
+    "expected_measurement_log_schema_version": 1,
     "expected_result_schema_version": 1
   },
   "surface_mle": {
     "repository": "https://github.com/moeuu/3D_estimation.git",
     "local_path_hint": "../3D_estimation",
-    "revision": "8345790881fdca330446d0cc2d9feb59fd06b4db",
+    "revision": "3c792e8f57ece716868e79dd44c9c5be1323b7a6",
     "revision_type": "commit",
     "release_tag": null,
-    "expected_measurement_log_schema_version": 2,
+    "expected_measurement_log_schema_version": 1,
     "expected_result_schema_version": 1
   }
 }

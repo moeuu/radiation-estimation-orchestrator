@@ -51,6 +51,15 @@ class WarmMLECLIAdapter:
         execution_dir: str | Path,
     ) -> AdapterExecution:
         """Run one warm all-history fit on the supplied exact prefix."""
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "Warm MLE pin expects MeasurementLog schema version "
+                f"{self.pin.expected_measurement_log_schema_version}, got "
+                f"{measurement_log.schema_version}."
+            )
         command_mode = {"count": "replay", "spectral": "fit-spectrum"}.get(mode)
         if command_mode is None:
             raise ValueError(f"Unsupported MLE mode: {mode!r}")

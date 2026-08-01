@@ -51,6 +51,13 @@ class FutureScoreCLIAdapter:
         execution_dir: str | Path,
     ) -> AdapterExecution:
         """Score strictly post-cutoff rows without refitting snapshot parameters."""
+        if (
+            measurement_log.schema_version
+            != self.pin.expected_measurement_log_schema_version
+        ):
+            raise ValueError(
+                "Future-score MLE pin and MeasurementLog schema versions differ."
+            )
         estimate = Path(snapshot_estimate_dir).resolve()
         snapshot = Path(snapshot_path).resolve()
         if estimate.is_symlink() or not estimate.is_dir():

@@ -1,6 +1,13 @@
-# Cross-repository contracts v1
+# Cross-repository contracts
 
 ## MeasurementLog
+
+Schema v1 is the archived projected-count contract. Schema v2 is the current common
+runtime contract produced by `Rotating-shield-particle-filter`. V2 carries raw integer
+full spectra and the complete producer-owned forward-model identity; it deliberately
+omits projected isotope counts, fitted count variances, and isotope covariance arrays.
+PF and spectral MLE therefore see the same recorded photons without maintaining two
+observation-generation implementations.
 
 Required files:
 
@@ -33,7 +40,11 @@ normalized configuration semantics.
 
 ### Forward model identity
 
-`forward_model_manifest.json` follows its own packaged v1 schema. In addition to the
+`forward_model_manifest.json` is validated by the schema matching its MeasurementLog.
+The v1 manifest explicitly carries the line attenuation table described below. The v2
+manifest binds the producer's complete full-spectrum generative contract and its
+file-backed assets; consumers verify that immutable identity instead of rebuilding
+simulation physics locally. In v1, in addition to the
 six component identifiers, it requires `units.linear_attenuation="cm^-1"` and a
 `line_mu_by_isotope` table. Every line entry has exactly `energy_keV`, normalized
 `weight`, and line-specific `fe`/`pb` linear attenuation coefficients. Energies are
@@ -48,7 +59,7 @@ and `49cc8ee41dea713ed6dcae459d676ffe78e6b70cacbfea2eba6df2eb732ace73`.
 Eu-154 uses all six production lines at 723.3, 873.2, 996.3, 1274.5, 1494.0,
 and 1596.5 keV—not the older three- or four-line detection subsets.
 
-Canonical NPZ arrays (`N` records, `B` bins, `I` isotopes):
+Canonical v1 NPZ arrays (`N` records, `B` bins, `I` isotopes):
 
 | Array | dtype | shape |
 |---|---:|---:|
@@ -69,6 +80,11 @@ Absent optional numeric values use NaN and a false presence mask; present values
 finite. Metadata JSONL rows contain exactly aligned `run_id`, `array_index`, `step_id`,
 `action_id`, `station_id`, and an estimator-independent `metadata` object.
 
+Canonical v2 uses the same step/action/station, pose, quaternion, Fe/Pb orientation,
+timing, and energy-edge arrays. `spectrum_counts` is nonnegative `int64`; no other
+observation-derived numeric arrays are permitted. Steps and actions equal zero-based
+row order, and station IDs form contiguous nondecreasing zero-based groups.
+
 `measurement_log_sha256` is the SHA-256 of canonical JSON encoding of the sorted map
 `{relative POSIX file path: raw file SHA-256}` for every regular file in the log. The
 encoding uses UTF-8, `indent=2`, sorted keys, `(',', ': ')` separators, and one trailing
@@ -85,8 +101,8 @@ mean/covariance, strength mean, and posterior mass.
 smallest cardinality, matching the pure-PF contract.
 
 Provenance binds estimator commit, MeasurementLog schema/hash, input and resolved
-config hashes, seed, allowed PF planner belief sources (`pf_posterior` and
-`pf_tentative` only), and
+config hashes, seed, allowed PF planner belief sources (`pf_posterior`,
+`pf_tentative`, or the v2 `joint_pf_particles` source), and
 `batch_feedback_applied=false`.
 
 During a same-log benchmark, PF posterior isotope keys must equal the MeasurementLog
