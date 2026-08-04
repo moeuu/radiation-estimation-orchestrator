@@ -1,4 +1,4 @@
-# Rotating Shield Estimation Orchestrator
+# Radiation Estimation Orchestrator
 
 This repository attaches estimator processes to one shared acquisition boundary.
 `Rotating-shield-simulation-runtime` is the sole production owner of Geant4,
@@ -10,7 +10,7 @@ copied into any estimator or orchestration repository.
 The orchestrator can request acquisition without owning its implementation:
 
 ```bash
-uv run rotating-shield-orchestrator acquire --plan /path/to/private-plan.json
+uv run radiation-estimation-orchestrator acquire --plan /path/to/private-plan.json
 ```
 
 The plan may contain source truth for the simulator, but the published MeasurementLog
@@ -98,7 +98,7 @@ Python 3.12+ and `uv` are required.
 uv sync
 uv run pytest
 uv run ruff check .
-uv run rotating-shield-orchestrator validate-log \
+uv run radiation-estimation-orchestrator validate-log \
   --run-dir fixtures/shared_small_run/measurement_log
 ```
 
@@ -118,9 +118,9 @@ this smoke fixture scientifically. Use a separately provenance-bound real-observ
 or Geant4 MeasurementLog for scientific estimator comparisons.
 
 ```bash
-uv run rotating-shield-orchestrator verify-pins \
+uv run radiation-estimation-orchestrator verify-pins \
   --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
-uv run rotating-shield-orchestrator benchmark \
+uv run radiation-estimation-orchestrator benchmark \
   --config configs/benchmark/shared_small_run.json
 ```
 
@@ -147,9 +147,9 @@ the environment artifact and ordered candidate set are hash-attested. The result
 algorithmic recommendation only and explicitly cannot authorize robot actuation.
 
 ```bash
-uv run rotating-shield-orchestrator verify-pins \
+uv run radiation-estimation-orchestrator verify-pins \
   --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
-uv run rotating-shield-orchestrator hybrid-replay \
+uv run radiation-estimation-orchestrator hybrid-replay \
   --config configs/hybrid/shared_small_run.json
 ```
 
@@ -187,7 +187,7 @@ See [`docs/forward_model_conformance.md`](docs/forward_model_conformance.md).
 Run both production providers from the orchestrator root with:
 
 ```bash
-uv run rotating-shield-orchestrator conformance \
+uv run radiation-estimation-orchestrator conformance \
   --fixture fixtures/forward_response_conformance.json \
   --pf-provider configs/conformance/pf_production.json \
   --mle-provider configs/conformance/mle_production.json \

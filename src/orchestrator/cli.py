@@ -26,7 +26,7 @@ from .hybrid.run_config import HybridRunConfig
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="rotating-shield-orchestrator",
+        prog="radiation-estimation-orchestrator",
         description=(
             "Attach pinned PF/MLE estimators to one shared-runtime MeasurementLog "
             "without duplicating simulation source."
