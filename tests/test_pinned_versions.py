@@ -19,7 +19,7 @@ def test_estimator_registry_pins_full_existing_local_commits(repository_root: Pa
     pins = load_estimator_pins(repository_root / "PINNED_ESTIMATORS.json")
     expected = {
         "particle_filter": repository_root.parent / "Rotating-shield-particle-filter",
-        "surface_mle": repository_root.parent / "3D_estimation",
+        "surface_mle": repository_root.parent / "radiation-surface-mle-estimator",
     }
     for name, checkout in expected.items():
         pin = pins[name]
@@ -33,4 +33,6 @@ def test_estimator_registry_pins_full_existing_local_commits(repository_root: Pa
 def test_registry_repositories_are_upstream_urls(repository_root: Path) -> None:
     pins = load_estimator_pins(repository_root / "PINNED_ESTIMATORS.json")
     assert pins["particle_filter"].repository.endswith("Rotating-shield-particle-filter.git")
-    assert pins["surface_mle"].repository.endswith("3D_estimation.git")
+    assert pins["surface_mle"].repository.endswith(
+        "radiation-surface-mle-estimator.git"
+    )

@@ -1,7 +1,7 @@
 {
   "provider": "surface_mle",
-  "repository_path": "../../../3D_estimation",
-  "revision": "8cd60571281ec8802a60d67dbd8a4d387e2e48e4",
+  "repository_path": "../../../radiation-surface-mle-estimator",
+  "revision": "52ac06bd413c23b9ecdaaa85dfe29da68e0f8555",
   "revision_type": "commit",
   "require_clean": true,
   "timeout_s": 600,

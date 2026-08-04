@@ -10,8 +10,8 @@
     "expected_result_schema_version": 1
   },
   "surface_mle": {
-    "repository": "https://github.com/moeuu/3D_estimation.git",
-    "local_path_hint": "../3D_estimation",
+    "repository": "https://github.com/moeuu/radiation-surface-mle-estimator.git",
+    "local_path_hint": "../radiation-surface-mle-estimator",
     "revision": "3c792e8f57ece716868e79dd44c9c5be1323b7a6",
     "revision_type": "commit",
     "release_tag": null,
