@@ -1,7 +1,7 @@
 {
   "provider": "surface_mle",
   "repository_path": "../../../3D_estimation",
-  "revision": "8345790881fdca330446d0cc2d9feb59fd06b4db",
+  "revision": "8cd60571281ec8802a60d67dbd8a4d387e2e48e4",
   "revision_type": "commit",
   "require_clean": true,
   "timeout_s": 600,
