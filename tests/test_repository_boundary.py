@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestrator.acquisition import acquire_measurement_log
 from runtime.session import run_acquisition_plan
 
+from orchestrator.acquisition import acquire_measurement_log
 
 ROOT = Path(__file__).resolve().parents[1]
 

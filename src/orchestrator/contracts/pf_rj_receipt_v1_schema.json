@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/pf-rj-receipt-v1.schema.json",
+  "title": "PF-owned exact reversible-jump receipt v1",
+  "type": "object",
+  "required": [
+    "schema_version", "receipt_family", "receipt_id", "directive_id",
+    "directive_sha256", "applied_once", "data_cutoff_step",
+    "prefix_measurement_log_sha256", "pf_checkpoint_before_sha256",
+    "move", "target", "proposal", "acceptance", "state", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_family": {"const": "pf_exact_rj_move"},
+    "receipt_id": {"$ref": "#/$defs/id"},
+    "directive_id": {"$ref": "#/$defs/id"},
+    "directive_sha256": {"$ref": "#/$defs/sha256"},
+    "applied_once": {"const": true},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "prefix_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "pf_checkpoint_before_sha256": {"$ref": "#/$defs/sha256"},
+    "move": {
+      "type": "object",
+      "required": ["kind", "isotope", "candidate_id", "cardinality_before", "cardinality_after"],
+      "properties": {
+        "kind": {"enum": ["birth", "death"]},
+        "isotope": {"type": "string", "minLength": 1},
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "cardinality_before": {"type": "integer", "minimum": 0},
+        "cardinality_after": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["log_density_before", "log_density_after", "includes_complete_pf_target"],
+      "properties": {
+        "log_density_before": {"type": "number"},
+        "log_density_after": {"type": "number"},
+        "includes_complete_pf_target": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "proposal": {
+      "type": "object",
+      "required": ["log_forward_density", "log_reverse_density", "log_abs_jacobian", "dimension_matching_transform"],
+      "properties": {
+        "log_forward_density": {"type": "number"},
+        "log_reverse_density": {"type": "number"},
+        "log_abs_jacobian": {"type": "number"},
+        "dimension_matching_transform": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "object",
+      "required": ["log_acceptance_ratio", "uniform_draw", "accepted"],
+      "properties": {
+        "log_acceptance_ratio": {"type": "number", "maximum": 0},
+        "uniform_draw": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "accepted": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "required": ["before_sha256", "after_sha256"],
+      "properties": {
+        "before_sha256": {"$ref": "#/$defs/sha256"},
+        "after_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": ["direct_weight_change", "hard_prune", "pf_target_preserved"],
+      "properties": {
+        "direct_weight_change": {"const": false},
+        "hard_prune": {"const": false},
+        "pf_target_preserved": {"const": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

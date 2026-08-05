@@ -1,32 +1,38 @@
 # Benchmark and metrics
 
-The command performs these steps in order: validate log, pure PF replay, count MLE,
-spectral MLE, validate all results, open truth, calculate metrics, write manifest.
+The active benchmark is schema v2:
 
-Shared point-source metrics are gated isotope-aware maximum-cardinality,
-minimum-distance assignments. Reports include 3-D/XY/Z errors, exact source
-cardinality, precision/recall, integrated strength error, and ceiling-source recall.
-Strength reports include per-isotope totals, matched-pair errors, every unmatched truth
-and estimated source as full missing/extra mass, and a complete assignment error.
-Consequently, equal-and-opposite errors in different isotope channels cannot cancel.
+```text
+validate MeasurementLog v2
+  -> local strict PF replay
+  -> local spectral surface MLE
+  -> validate both result bundles
+  -> open separate truth
+  -> common metrics
+  -> hash-rich manifest
+```
 
-Operational metrics are derived from MeasurementLog facts: measurement count, unique
-XYZ/action counts, detector-height distribution, travel time, shield actuation time,
-live time, estimator wall runtime, and subprocess-tree peak RSS.
+Both estimators use the same raw spectra, poses, shield states, live times, runtime
+configuration, and physical forward model. No estimator subprocess or sibling checkout
+is involved. The manifest identifies this repository's commit, dirty source snapshot,
+runtime model/log identities, raw and resolved estimator configuration hashes, random
+seed, execution durations, and every output-file hash.
 
-Surface-MLE metrics include cluster centroid and strength errors, matched surface-kind
-accuracy, reconstructed patch mass within the truth match radius, and held-out Poisson
-deviance.
+Point-source metrics use isotope-aware gated assignment and report 3-D, XY, and Z
+position error, exact cardinality, precision/recall, integrated strength error, and
+ceiling-source recall. Unmatched truth and estimate mass is retained explicitly.
 
-The manifest contains exact external commands, pinned/requested/observed commits,
-allowed dirty inventories, all input/result/log hashes, package versions, and a sidecar
-hash for the manifest itself. Estimator configuration provenance is split deliberately:
-`estimator_config_file_sha256` hashes the raw files passed on the command line, while
-`expected_resolved_estimator_config_sha256` is fixed independently in the benchmark
-configuration for every run. Each PF/MLE result must match that expectation after
-defaults and profile enforcement; only then is the observed
-`resolved_estimator_config_sha256` recorded. The raw, expected-resolved, and
-observed-resolved fields are never treated as aliases.
+Operational metrics come only from the MeasurementLog: measurement/action count,
+detector-height distribution, travel time, shield-actuation time, live time, estimator
+runtime, and memory where measurable.
 
-Execution stdout/stderr paths in the manifest are relative to the published benchmark
-root. They remain valid after the staging directory is atomically renamed.
+Surface-MLE metrics include hotspot centroid/strength error, surface-kind accuracy,
+recovered mass near truth, and held-out deviance when available.
+
+Truth must be outside the MeasurementLog directory. The benchmark opens it only after
+PF and MLE result validation. Contract fixtures prove dataflow and serialization; their
+accuracy metrics are not scientific results. Scientific comparisons require new,
+provenance-bound runtime/Geant4 logs and equal observation/time budgets.
+
+Historical schema-v1 result contracts remain validators for old artifacts. The active
+benchmark CLI rejects v1 configs because they depended on external estimator checkouts.

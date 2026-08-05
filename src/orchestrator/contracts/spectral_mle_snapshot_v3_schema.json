@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/spectral-mle-snapshot-v3.schema.json",
+  "title": "Causal spectral surface-MLE prefix snapshot v3",
+  "type": "object",
+  "required": [
+    "schema_version", "milestone", "snapshot_id", "source_run_id", "prefix",
+    "fit", "artifacts", "candidates", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 3},
+    "milestone": {"const": "pf_mle_hybrid_v2"},
+    "snapshot_id": {"$ref": "#/$defs/id"},
+    "source_run_id": {"$ref": "#/$defs/id"},
+    "prefix": {
+      "type": "object",
+      "required": [
+        "measurement_log_schema_version", "data_cutoff_step", "data_cutoff_station",
+        "covered_step_ids", "covered_records_sha256", "prefix_measurement_log_sha256",
+        "station_boundaries_sha256"
+      ],
+      "properties": {
+        "measurement_log_schema_version": {"const": 2},
+        "data_cutoff_step": {"type": "integer", "minimum": 0},
+        "data_cutoff_station": {"type": "integer", "minimum": 0},
+        "covered_step_ids": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "covered_records_sha256": {"$ref": "#/$defs/sha256"},
+        "prefix_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+        "station_boundaries_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "fit": {
+      "type": "object",
+      "required": ["estimator_variant", "converged", "warm_start", "mle_result_sha256"],
+      "properties": {
+        "estimator_variant": {"const": "spectral"},
+        "converged": {"type": "boolean"},
+        "warm_start": {
+          "type": "object",
+          "required": ["used", "source_snapshot_id", "source_result_sha256"],
+          "properties": {
+            "used": {"type": "boolean"},
+            "source_snapshot_id": {"type": ["string", "null"]},
+            "source_result_sha256": {
+              "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+            }
+          },
+          "additionalProperties": false
+        },
+        "mle_result_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "estimate_npz_sha256", "diagnostics_sha256", "hotspot_clusters_sha256",
+        "predicted_spectra_sha256", "predicted_spectra_shape"
+      ],
+      "properties": {
+        "estimate_npz_sha256": {"$ref": "#/$defs/sha256"},
+        "diagnostics_sha256": {"$ref": "#/$defs/sha256"},
+        "hotspot_clusters_sha256": {"$ref": "#/$defs/sha256"},
+        "predicted_spectra_sha256": {"$ref": "#/$defs/sha256"},
+        "predicted_spectra_shape": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "prefixItems": [
+            {"type": "integer", "minimum": 1},
+            {"type": "integer", "minimum": 1}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidates": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/candidate"}
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "uses_only_prefix", "uses_pf_state", "uses_pf_candidates",
+        "candidate_domain", "direct_pf_weight_increment"
+      ],
+      "properties": {
+        "uses_only_prefix": {"const": true},
+        "uses_pf_state": {"const": false},
+        "uses_pf_candidates": {"const": false},
+        "candidate_domain": {"const": "complete_surface_dictionary"},
+        "direct_pf_weight_increment": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate": {
+      "type": "object",
+      "required": [
+        "candidate_id", "isotope", "centroid_xyz", "covariance_xyz",
+        "integrated_strength_cps_1m", "surface_kinds", "patch_ids",
+        "candidate_spectral_support_sha256"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "isotope": {"type": "string", "minLength": 1},
+        "centroid_xyz": {"$ref": "#/$defs/vector3"},
+        "covariance_xyz": {
+          "type": "array", "minItems": 3, "maxItems": 3,
+          "items": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "items": {"type": "number"}
+          }
+        },
+        "integrated_strength_cps_1m": {"type": "number", "minimum": 0},
+        "surface_kinds": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "patch_ids": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "candidate_spectral_support_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "additionalProperties": false
+    },
+    "vector3": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "prefixItems": [{"type": "number"}, {"type": "number"}, {"type": "number"}]
+    }
+  }
+}

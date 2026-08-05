@@ -9,11 +9,14 @@ import sys
 from collections.abc import Mapping
 from importlib import metadata
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from .adapters import AdapterExecution, EstimatorPin
 from .contracts import MeasurementLogInfo, MLEResultInfo, PFResultInfo
 from .errors import ContractError
 from .hashing import canonical_json_bytes, sha256_bytes, sha256_file, write_json_atomic
+
+if TYPE_CHECKING:
+    from .adapters import AdapterExecution, EstimatorPin
 
 
 def _git_value(repository: Path, *args: str) -> str | None:
@@ -34,12 +37,20 @@ def orchestrator_provenance(repository: str | Path) -> dict[str, object]:
     """Record this orchestrator checkout, including an intentional dirty state."""
     root = Path(repository).resolve()
     status = _git_value(root, "status", "--porcelain=v1", "--untracked-files=all")
+    listed = _git_value(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    source_inventory: dict[str, str] = {}
+    for relative in sorted(item for item in (listed or "").split("\0") if item):
+        path = root / relative
+        source_inventory[relative] = sha256_file(path) if path.is_file() else "deleted"
     return {
         "repository_path": root.as_posix(),
         "commit": _git_value(root, "rev-parse", "HEAD"),
+        "tracked_tree": _git_value(root, "rev-parse", "HEAD^{tree}"),
         "branch": _git_value(root, "branch", "--show-current"),
         "dirty": bool(status),
         "dirty_status_sha256": sha256_bytes((status or "").encode("utf-8")),
+        "source_snapshot_sha256": sha256_bytes(canonical_json_bytes(source_inventory)),
+        "source_file_count": len(source_inventory),
     }
 
 
@@ -73,7 +84,7 @@ def pin_payload(pin: EstimatorPin) -> dict[str, object]:
 
 def _resolved_estimator_config_hashes(
     pf_result: PFResultInfo,
-    mle_count_result: MLEResultInfo,
+    mle_count_result: MLEResultInfo | None,
     mle_spectral_result: MLEResultInfo,
 ) -> dict[str, str]:
     """Extract estimator-resolved hashes only from already validated provenance."""
@@ -87,13 +98,17 @@ def _resolved_estimator_config_hashes(
         assert isinstance(provenance, dict)
         return provenance
 
-    return {
+    resolved = {
         "pf_strict": str(pf_provenance["resolved_config_sha256"]),
-        "mle_count": str(mle_provenance(mle_count_result)["resolved_estimator_config_sha256"]),
         "mle_spectral": str(
             mle_provenance(mle_spectral_result)["resolved_estimator_config_sha256"]
         ),
     }
+    if mle_count_result is not None:
+        resolved["mle_count"] = str(
+            mle_provenance(mle_count_result)["resolved_estimator_config_sha256"]
+        )
+    return resolved
 
 
 def build_benchmark_manifest(
@@ -112,7 +127,7 @@ def build_benchmark_manifest(
     metrics_path: Path,
     executions: Mapping[str, AdapterExecution],
     pf_result: PFResultInfo,
-    mle_count_result: MLEResultInfo,
+    mle_count_result: MLEResultInfo | None,
     mle_spectral_result: MLEResultInfo,
 ) -> dict[str, object]:
     """Build a complete manifest without reading estimator source code."""
@@ -125,22 +140,40 @@ def build_benchmark_manifest(
         raise ContractError(
             "Validated resolved estimator hashes differ from benchmark expectations."
         )
+    pipeline_order = ["validate_measurement_log", "pure_pf_replay"]
+    if mle_count_result is not None:
+        pipeline_order.append("count_mle_replay")
+    pipeline_order.extend(
+        [
+            "spectral_mle_replay",
+            "validate_result_contracts",
+            "open_evaluation_truth",
+            "compute_metrics",
+            "write_manifest",
+        ]
+    )
+    validated_outputs: dict[str, object] = {
+        "pf_strict": {
+            "sha256": pf_result.result_sha256,
+            "artifact_inventory": dict(pf_result.artifact_inventory),
+        },
+        "mle_spectral": {
+            "sha256": mle_spectral_result.result_sha256,
+            "artifact_inventory": dict(mle_spectral_result.artifact_inventory),
+        },
+    }
+    if mle_count_result is not None:
+        validated_outputs["mle_count"] = {
+            "sha256": mle_count_result.result_sha256,
+            "artifact_inventory": dict(mle_count_result.artifact_inventory),
+        }
     return {
         "schema_version": 1,
         "benchmark_id": benchmark_id,
         "status": "complete",
         "started_at_utc": started_at_utc,
         "completed_at_utc": completed_at_utc,
-        "pipeline_order": [
-            "validate_measurement_log",
-            "pure_pf_replay",
-            "count_mle_replay",
-            "spectral_mle_replay",
-            "validate_result_contracts",
-            "open_evaluation_truth",
-            "compute_metrics",
-            "write_manifest",
-        ],
+        "pipeline_order": pipeline_order,
         "truth_isolation": {
             "truth_path": truth_path.resolve().as_posix(),
             "truth_sha256": sha256_file(truth_path),
@@ -148,7 +181,7 @@ def build_benchmark_manifest(
             "passed_to_estimator_commands": False,
         },
         "contracts": {
-            "measurement_log": 1,
+            "measurement_log": measurement_log.schema_version,
             "pf_result": 1,
             "mle_result": 1,
             "mle_snapshot": 1,
@@ -178,20 +211,7 @@ def build_benchmark_manifest(
             "artifact_inventory": dict(measurement_log.artifact_inventory),
         },
         "executions": {name: execution.to_dict() for name, execution in sorted(executions.items())},
-        "validated_outputs": {
-            "pf_strict": {
-                "sha256": pf_result.result_sha256,
-                "artifact_inventory": dict(pf_result.artifact_inventory),
-            },
-            "mle_count": {
-                "sha256": mle_count_result.result_sha256,
-                "artifact_inventory": dict(mle_count_result.artifact_inventory),
-            },
-            "mle_spectral": {
-                "sha256": mle_spectral_result.result_sha256,
-                "artifact_inventory": dict(mle_spectral_result.artifact_inventory),
-            },
-        },
+        "validated_outputs": validated_outputs,
         "metrics": {
             "path": metrics_path.name,
             "sha256": sha256_file(metrics_path),

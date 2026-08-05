@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/pf-rj-directive-v1.schema.json",
+  "title": "MLE-informed exact-RJ PF kernel directive v1",
+  "type": "object",
+  "required": [
+    "schema_version", "directive_family", "directive_id", "source_run_id",
+    "spectral_snapshot_id", "spectral_snapshot_sha256",
+    "proposal_data_cutoff_step", "proposal_data_cutoff_station",
+    "data_cutoff_step", "data_cutoff_station",
+    "prefix_measurement_log_sha256", "covered_records_sha256",
+    "pf_checkpoint_sha256", "pf_state_before_sha256",
+    "verified_candidate_ids", "birth_regions",
+    "kernel", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "directive_family": {"const": "mle_informed_exact_rj_kernel"},
+    "directive_id": {"$ref": "#/$defs/id"},
+    "source_run_id": {"type": "string", "minLength": 1},
+    "spectral_snapshot_id": {"$ref": "#/$defs/id"},
+    "spectral_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "proposal_data_cutoff_step": {"type": "integer", "minimum": 0},
+    "proposal_data_cutoff_station": {"type": "integer", "minimum": 0},
+    "data_cutoff_step": {"type": "integer", "minimum": 0},
+    "data_cutoff_station": {"type": "integer", "minimum": 0},
+    "prefix_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "covered_records_sha256": {"$ref": "#/$defs/sha256"},
+    "pf_checkpoint_sha256": {"$ref": "#/$defs/sha256"},
+    "pf_state_before_sha256": {"$ref": "#/$defs/sha256"},
+    "verified_candidate_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "birth_regions": {
+      "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/birthRegion"}
+    },
+    "kernel": {
+      "type": "object",
+      "required": [
+        "family", "forward_birth_density", "reverse_death_selection",
+        "dimension_matching_transform", "jacobian_owner", "acceptance_owner"
+      ],
+      "properties": {
+        "family": {"const": "paired_birth_death_reversible_jump"},
+        "forward_birth_density": {"const": "surface_region_strength_gaussian_mixture"},
+        "reverse_death_selection": {"const": "pf_state_normalized_source_selection"},
+        "dimension_matching_transform": {"type": "string", "minLength": 1},
+        "jacobian_owner": {"const": "particle_filter"},
+        "acceptance_owner": {"const": "particle_filter"}
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": [
+        "proposal_only", "direct_pf_weight_increment", "hard_prune_requested",
+        "same_observation_reweight", "once_only"
+      ],
+      "properties": {
+        "proposal_only": {"const": true},
+        "direct_pf_weight_increment": {"const": false},
+        "hard_prune_requested": {"const": false},
+        "same_observation_reweight": {"const": false},
+        "once_only": {"const": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "xyz": {
+      "type": "array", "prefixItems": [
+        {"type": "number"}, {"type": "number"}, {"type": "number"}
+      ], "items": false
+    },
+    "covariance": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}
+    },
+    "birthRegion": {
+      "type": "object",
+      "required": [
+        "candidate_id", "isotope", "centroid_xyz", "covariance_xyz",
+        "integrated_strength_cps_1m", "surface_kinds", "candidate_weight"
+      ],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "isotope": {"type": "string", "minLength": 1},
+        "centroid_xyz": {"$ref": "#/$defs/xyz"},
+        "covariance_xyz": {"$ref": "#/$defs/covariance"},
+        "integrated_strength_cps_1m": {"type": "number", "exclusiveMinimum": 0},
+        "surface_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "candidate_weight": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

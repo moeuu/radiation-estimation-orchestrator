@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/future-spectral-candidate-score-v2.schema.json",
+  "title": "Future-only block spectral candidate score v2",
+  "type": "object",
+  "required": [
+    "schema_version", "score_family", "snapshot_id", "snapshot_sha256",
+    "snapshot_data_cutoff_step", "current_measurement_log_sha256", "future_step_ids",
+    "blocks", "candidates", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "score_family": {"const": "frozen_spectral_full_vs_candidate_zero_log_likelihood_ratio"},
+    "snapshot_id": {"$ref": "#/$defs/id"},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "snapshot_data_cutoff_step": {"type": "integer", "minimum": 0},
+    "current_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "future_step_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "blocks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/block"}},
+    "candidates": {
+      "type": "array", "items": {"$ref": "#/$defs/candidate_score"}
+    },
+    "safety": {
+      "type": "object",
+      "required": ["future_only", "snapshot_frozen", "same_observation_reweight"],
+      "properties": {
+        "future_only": {"const": true},
+        "snapshot_frozen": {"const": true},
+        "same_observation_reweight": {"const": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "block": {
+      "type": "object",
+      "required": [
+        "block_id", "station_id", "height_group_id", "shield_program_id", "step_ids"
+      ],
+      "properties": {
+        "block_id": {"$ref": "#/$defs/id"},
+        "station_id": {"type": "integer", "minimum": 0},
+        "height_group_id": {"$ref": "#/$defs/id"},
+        "shield_program_id": {"$ref": "#/$defs/id"},
+        "step_ids": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        }
+      },
+      "additionalProperties": false
+    },
+    "candidate_score": {
+      "type": "object",
+      "required": ["candidate_id", "cumulative_log_likelihood_ratio", "block_scores"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/id"},
+        "cumulative_log_likelihood_ratio": {"type": "number"},
+        "block_scores": {
+          "type": "array", "minItems": 1, "items": {"$ref": "#/$defs/block_score"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "block_score": {
+      "type": "object",
+      "required": [
+        "block_id", "full_model_poisson_deviance", "candidate_zero_poisson_deviance",
+        "log_likelihood_ratio", "energy_bin_count"
+      ],
+      "properties": {
+        "block_id": {"$ref": "#/$defs/id"},
+        "full_model_poisson_deviance": {"type": "number", "minimum": 0},
+        "candidate_zero_poisson_deviance": {"type": "number", "minimum": 0},
+        "log_likelihood_ratio": {"type": "number"},
+        "energy_bin_count": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}

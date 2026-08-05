@@ -1,7 +1,7 @@
 [project]
 name = "radiation-estimation-orchestrator"
-version = "0.1.0"
-description = "Reproducible cross-estimator contracts, conformance, and benchmarking for radiation estimation."
+version = "0.3.0"
+description = "Reproducible PF, spectral-MLE, and causal closed-loop hybrid orchestration for radiation estimation."
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -11,6 +11,7 @@ dependencies = [
   "numpy>=2.1,<3",
   "psutil>=6,<8",
   "rotating-shield-simulation-runtime",
+  "scipy>=1.16,<2",
 ]
 
 [project.scripts]
@@ -48,6 +49,12 @@ packages = ["src/orchestrator"]
 "src/orchestrator/contracts/future_candidate_score_schema.json" = "orchestrator/contracts/future_candidate_score_schema.json"
 "src/orchestrator/contracts/hybrid_planning_request_schema.json" = "orchestrator/contracts/hybrid_planning_request_schema.json"
 "src/orchestrator/contracts/hybrid_planning_recommendation_schema.json" = "orchestrator/contracts/hybrid_planning_recommendation_schema.json"
+"src/orchestrator/contracts/spectral_mle_snapshot_v3_schema.json" = "orchestrator/contracts/spectral_mle_snapshot_v3_schema.json"
+"src/orchestrator/contracts/future_spectral_candidate_score_v2_schema.json" = "orchestrator/contracts/future_spectral_candidate_score_v2_schema.json"
+"src/orchestrator/contracts/pf_checkpoint_v1_schema.json" = "orchestrator/contracts/pf_checkpoint_v1_schema.json"
+"src/orchestrator/contracts/pf_rj_directive_v1_schema.json" = "orchestrator/contracts/pf_rj_directive_v1_schema.json"
+"src/orchestrator/contracts/pf_rj_receipt_v1_schema.json" = "orchestrator/contracts/pf_rj_receipt_v1_schema.json"
+"src/orchestrator/contracts/future_spectral_score_request_v1_schema.json" = "orchestrator/contracts/future_spectral_score_request_v1_schema.json"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

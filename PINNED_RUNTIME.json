@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/moeuu/radiation-simulation-runtime.git",
+  "local_path_hint": "../Rotating-shield-simulation-runtime",
+  "revision": "16d3f0e59f04a6e81698c100b89d5dd98d696039",
+  "revision_type": "commit",
+  "required_measurement_log_schema_version": 2,
+  "required_live_protocol_version": 2
+}

@@ -1,82 +1,96 @@
-# Architecture and dependency direction
+# Architecture and ownership
 
-The orchestrator depends on estimator contracts, never estimator implementations.
-Production simulation has one owner:
+## Dependency direction
 
-```text
-Rotating-shield-particle-filter
-  Geant4 + environment + detector/shield + action execution
-                         │
-                         ▼
-             raw MeasurementLog v2
-                ┌────────┼────────┐
-                ▼        ▼        ▼
-               PF       MLE     PF+MLE
-```
-
-This boundary removes simulator synchronization work. The estimator repositories may
-change inference code independently, but they may not regenerate, reinterpret, or
-silently project observations before consuming the shared log.
-
-For a same-observation comparison, acquisition runs once and every estimator replays
-the identical finalized log. For estimator-controlled planning, PF, MLE, and PF+MLE
-may select different next actions, so their future observations cannot be identical.
-Those missions share the same simulator implementation, resolved physical contract,
-environment-generation rules, and seed policy, but each remains a separate causal run.
+`Rotating-shield-simulation-runtime` is the only external research-code dependency.
+It publishes immutable physics objects and truth-free observations. All statistical
+inference and control after observation generation is implemented here.
 
 ```text
-orchestrator → subprocess CLI → pinned pure-PF checkout
-             → subprocess CLI → pinned surface-MLE checkout
-
-MeasurementLog → adapter input
-PFResult/MLEResult → validation → evaluation
-truth.json ────────────────────────┘  (evaluation phase only)
+simulation runtime
+  environment / obstacles / detector / shield / transport / spectrum
+  action safety / actuation / observations / MeasurementLog v2
+                              │
+                              ▼
+orchestrator.estimators.context + forward
+                              │
+             ┌────────────────┼────────────────┐
+             ▼                ▼                ▼
+       ParticleFilter      SpectralMLE     action prediction
+             │                │                │
+             ├─ checkpoint    ├─ snapshot      └─ checkpoint planning
+             ├─ exact RJ      └─ future scoring
+             └────────────────┬────────────────┘
+                              ▼
+                    hybrid-v2 controller
 ```
 
-The separately versioned hybrid v1 path uses the same dependency boundary:
+Allowed dependency direction:
 
 ```text
-MeasurementLog prefix ─► pinned PF replay ─► predictive record / PF receipt
-                      └► pinned count MLE ─► MLESnapshot ─► PFDirective
-
-future-only rows ─► frozen snapshot score ─► verification/quarantine
-PF + pending/verified modes + attested poses ─► non-actuating DSS-PP recommendation
-
-complete MeasurementLog ─► cold count MLE     (diagnostic)
-                        └► cold spectral MLE  (authoritative final report)
+hybrid_v2 -> local estimator services -> PF/MLE/RJ/planning
+PF/MLE/RJ/planning -> authenticated runtime physics
+live controller -> runtime protocol-v2 client
 ```
 
-The orchestrator owns scheduling, exact-prefix materialization, contracts, the
-verification queue, and the observation-use ledger. The PF repository owns the
-target-preserving fixed-cardinality MH kernel; the MLE repository owns every surface
-fit and response calculation. No estimator physics is reimplemented here. See
-[`hybrid_v1.md`](hybrid_v1.md) for causality and limitation details.
+Forbidden directions:
 
-There is no Python import edge from `orchestrator` to `pf`,
-`three_d_estimation`, detector/transport kernels, or runtime measurement packages.
-The default commands are token arrays and run with `shell=False`. A reduced environment
-allowlist is supplied to children; credentials are not propagated.
+- active code to `pf` or `three_d_estimation` packages;
+- subprocess calls into sibling estimator repositories;
+- copied detector, shield, obstacle, transport, spectrum, simulator, or
+  MeasurementLog-writer implementations;
+- truth flowing into inference, planning, or acquisition decisions.
 
-The benchmark runs in a fixed refuse-replace staging directory. Publication is one
-atomic directory rename after input validation, all subprocesses, result validation,
-truth-gated metrics, and manifest writing complete.
+## Physical context
 
-Dirty estimator checkouts are safe only when every changed path is beneath an explicit
-artifact prefix such as `results/` or `logs/`. Dirty `src/`, tests, configs, or entry
-points fail revision verification. The complete dirty inventory and file hashes are
-recorded in every execution entry.
+`estimators/context.py` validates MeasurementLog v2, reconstructs the exact runtime
+observation model from its resolved runtime configuration and model manifests, builds
+runtime-owned surface charts, and checks the recorded energy axis. `estimators/forward.py`
+then provides batched full-spectrum predictions for recorded rows and hypothetical
+actions. PF, MLE, RJ, future scoring, and planning all use this one context.
 
-The benchmark production policy cannot be disabled in JSON: both exact revision
-verification and clean-checkout enforcement must be true. Adapter command overrides
-are rejected, so the pinned repository's public CLI remains the executable boundary.
-Configured dirty prefixes may narrow, but never broaden, the fixed artifact/cache
-allowlist.
+The runtime remains authoritative for:
 
-The pure benchmark and hybrid replay are independent active paths. Hybrid directives
-cannot enter the pure PF command, and prefix warm starts cannot change the standalone
-MLE objective or complete-surface candidate domain.
+- line-resolved source transport and attenuation;
+- detector response, additive scatter, background, and dead time;
+- source-strength semantics;
+- surface geometry and obstacle transport;
+- collision/reachability/path attestation and physical action execution.
 
-The default estimator registry pins the current MeasurementLog-v2 consumers. Archived
-v1 benchmark/hybrid configs name a separate immutable v1 registry. Schema selection is
-therefore explicit in the run config rather than inferred from whatever sibling
-checkout happens to be present.
+## Local estimators
+
+The strict PF owns particle position charts, strengths, cardinality, weights, RNG state,
+station-block likelihood updates, resampling, posterior summaries, pre-update spectral
+predictions, and deterministic checkpoints. It has no batch-MLE call path.
+
+The spectral MLE owns the complete-surface response matrix, nonnegative Poisson
+optimization, L1 and graph-TV regularization, warm starts, surface density maps, and
+hotspot clusters. Its API has no PF state or PF candidate argument.
+
+The exact-RJ kernel is PF-owned. A verified MLE region defines a proposal distribution,
+not an extra likelihood. Birth and death are paired; boundary move probabilities,
+forward/reverse densities, the current full PF target, dimension matching, Jacobian,
+draw, and decision are recorded in the receipt.
+
+## Durable hybrid execution
+
+Every hybrid artifact binds the source run, exact cutoff, covered step IDs, neutral
+covered-record hash, resolved estimator configuration, and relevant input/output hashes.
+The observation-use ledger rejects reused verification rows and pre-cutoff evidence.
+
+The live state machine persists proposed, realized, appended, and estimator-updated
+events separately. A runtime decision ID is exactly-once and receipt-queryable. After a
+restart, an existing runtime receipt is recovered, the durable MeasurementLog prefix is
+revalidated, and incomplete local inference is recomputed in a private output directory.
+
+Planning receives only runtime-attested candidates. It may combine PF particle
+hypotheses with pending/verified MLE regions at controlled mass, excludes quarantined
+regions, scores full-spectrum separation and operational cost, and proves that the PF
+checkpoint hash is unchanged.
+
+## Active versus historical code
+
+The public CLI exposes only runtime acquisition, local PF/MLE/scoring/RJ/planning,
+benchmark v2, and hybrid v2. Historical v1 contracts remain parsable so old result
+bundles can be audited, but v1 external-estimator execution is unsupported and is not a
+production dependency.

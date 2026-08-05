@@ -1,0 +1,38 @@
+name: Runtime-only production contract smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-only-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: radiation-estimation-orchestrator
+      - uses: actions/checkout@v4
+        with:
+          repository: moeuu/radiation-simulation-runtime
+          ref: 16d3f0e59f04a6e81698c100b89d5dd98d696039
+          path: Rotating-shield-simulation-runtime
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify exact runtime pin
+        working-directory: Rotating-shield-simulation-runtime
+        run: test "$(git rev-parse HEAD)" = "16d3f0e59f04a6e81698c100b89d5dd98d696039"
+      - name: Install runtime-only estimator stack
+        working-directory: radiation-estimation-orchestrator
+        run: uv sync --locked
+      - name: Verify local PF, MLE, RJ, scoring, and protocol contracts
+        working-directory: radiation-estimation-orchestrator
+        run: uv run pytest -q
+      - name: Verify public local-estimator CLI
+        working-directory: radiation-estimation-orchestrator
+        run: uv run radiation-estimation-orchestrator --help

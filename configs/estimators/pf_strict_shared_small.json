@@ -1,16 +1,11 @@
 {
-  "estimator_profile": "pf_strict",
-  "fixed_measurement_budget": 12,
   "num_particles": 64,
-  "min_particles": 64,
-  "max_particles": 64,
-  "planner_enabled": false,
-  "random_seed": 20260716,
-  "replay_candidate_spacing_m": 2.0,
-  "use_gpu": false,
-  "reporting": {
-    "final_estimate_source": "pf_posterior",
-    "include_cardinality_distribution": true,
-    "include_credible_regions": true
-  }
+  "max_sources_per_isotope": 2,
+  "initial_presence_probability": 0.65,
+  "expected_sources_per_isotope": 1.0,
+  "strength_min_cps_1m": 100.0,
+  "strength_max_cps_1m": 10000000.0,
+  "resample_ess_fraction": 0.5,
+  "patch_edge_m": 2.0,
+  "use_gpu": false
 }

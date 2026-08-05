@@ -525,6 +525,7 @@ class HybridController:
                     "inference_measurement_log_sha256": marked_log.measurement_log_sha256,
                     "hybrid_config_sha256": sha256_file(config.source_path),
                     "pin_registry_sha256": sha256_file(config.pin_registry_path),
+                    "orchestrator": provenance,
                     "pins": {name: asdict(pin) for name, pin in sorted(pins.items())},
                     "executions": {
                         name: self._retarget_execution(execution, staging).to_dict()
@@ -565,6 +566,7 @@ class HybridController:
                 verification_queue_sha256=sha256_file(queue_path),
                 verification_counts=verification_counts,
                 orchestrator_commit=orchestrator_commit,
+                orchestrator_source_provenance=provenance,
                 hybrid_config_sha256=sha256_file(config.source_path),
                 pin_registry_sha256=sha256_file(config.pin_registry_path),
                 execution_evidence_sha256=execution_evidence_sha256,

@@ -284,6 +284,30 @@
       ],
       "properties": {
         "orchestrator_commit": {"type": "string", "minLength": 1},
+        "orchestrator_source": {
+          "type": "object",
+          "required": [
+            "repository_path",
+            "commit",
+            "tracked_tree",
+            "branch",
+            "dirty",
+            "dirty_status_sha256",
+            "source_snapshot_sha256",
+            "source_file_count"
+          ],
+          "properties": {
+            "repository_path": {"type": "string", "minLength": 1},
+            "commit": {"type": "string", "minLength": 1},
+            "tracked_tree": {"type": ["string", "null"]},
+            "branch": {"type": ["string", "null"]},
+            "dirty": {"type": "boolean"},
+            "dirty_status_sha256": {"$ref": "#/$defs/sha256"},
+            "source_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+            "source_file_count": {"type": "integer", "minimum": 1}
+          },
+          "additionalProperties": false
+        },
         "hybrid_config_sha256": {"$ref": "#/$defs/sha256"},
         "pin_registry_sha256": {"$ref": "#/$defs/sha256"},
         "execution_evidence_sha256": {"$ref": "#/$defs/sha256"}

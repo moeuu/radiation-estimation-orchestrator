@@ -7,14 +7,20 @@ import signal
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import psutil
 
 from orchestrator.errors import AdapterExecutionError, ContractError, RevisionError
-from orchestrator.hashing import directory_inventory, inventory_digest, load_json, sha256_file
+from orchestrator.hashing import (
+    directory_inventory,
+    inventory_digest,
+    load_json,
+    sha256_file,
+    write_json_atomic,
+)
 
 _SAFE_ENV_KEYS = (
     "PATH",
@@ -40,7 +46,14 @@ _PLACEHOLDERS = frozenset(
         "initial_estimate",
         "snapshot",
         "snapshot_estimate",
+        "score_request",
         "planning_request",
+        "checkpoint_in",
+        "checkpoint_out",
+        "rj_directive",
+        "rj_receipt",
+        "relocation_directive",
+        "relocation_receipt",
         "stop_after",
     }
 )
@@ -135,6 +148,53 @@ class AdapterExecution:
             path: dict(details) for path, details in sorted(self.dirty_worktree.items())
         }
         return payload
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, object]) -> AdapterExecution:
+        """Rebuild one immutable execution receipt after a controller restart."""
+        normalized = dict(payload)
+        command = normalized.get("command")
+        output_inventory = normalized.get("output_inventory")
+        dirty_worktree = normalized.get("dirty_worktree")
+        if (
+            not isinstance(command, list)
+            or not all(isinstance(value, str) for value in command)
+            or not isinstance(output_inventory, dict)
+            or not isinstance(dirty_worktree, dict)
+        ):
+            raise ContractError("Adapter execution receipt is malformed.")
+        normalized["command"] = tuple(command)
+        return cls(**normalized)  # type: ignore[arg-type]
+
+
+def recover_adapter_execution(
+    receipt_path: str | Path,
+    *,
+    output_directory: str | Path,
+) -> AdapterExecution:
+    """Validate and recover a completed adapter call without rerunning it."""
+    receipt = Path(receipt_path).resolve()
+    execution = AdapterExecution.from_dict(load_json(receipt))
+    stdout = Path(execution.stdout_path)
+    stderr = Path(execution.stderr_path)
+    if not stdout.is_file():
+        stdout = receipt.parent / stdout.name
+    if not stderr.is_file():
+        stderr = receipt.parent / stderr.name
+    if sha256_file(stdout) != execution.stdout_sha256:
+        raise ContractError("Recovered adapter stdout hash mismatch.")
+    if sha256_file(stderr) != execution.stderr_sha256:
+        raise ContractError("Recovered adapter stderr hash mismatch.")
+    inventory = directory_inventory(output_directory)
+    if inventory != dict(execution.output_inventory):
+        raise ContractError("Recovered adapter output inventory mismatch.")
+    if inventory_digest(inventory) != execution.output_sha256:
+        raise ContractError("Recovered adapter output digest mismatch.")
+    return replace(
+        execution,
+        stdout_path=stdout.resolve().as_posix(),
+        stderr_path=stderr.resolve().as_posix(),
+    )
 
 
 def load_estimator_pins(path: str | Path) -> dict[str, EstimatorPin]:
@@ -419,7 +479,7 @@ def run_adapter_process(
     inventory = directory_inventory(output_dir)
     if not inventory:
         raise AdapterExecutionError(f"{estimator} produced an empty output directory.")
-    return AdapterExecution(
+    execution = AdapterExecution(
         estimator=estimator,
         requested_revision=pin.revision,
         observed_revision=observed,
@@ -441,6 +501,8 @@ def run_adapter_process(
         output_sha256=inventory_digest(inventory),
         dirty_worktree=dirty_worktree,
     )
+    write_json_atomic(execution_dir / "adapter_execution.json", execution.to_dict())
+    return execution
 
 
 def settings_from_dict(

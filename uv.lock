@@ -611,13 +611,14 @@ wheels = [
 
 [[package]]
 name = "radiation-estimation-orchestrator"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "jsonschema" },
     { name = "numpy" },
     { name = "psutil" },
     { name = "rotating-shield-simulation-runtime" },
+    { name = "scipy" },
 ]
 
 [package.dev-dependencies]
@@ -633,6 +634,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.1,<3" },
     { name = "psutil", specifier = ">=6,<8" },
     { name = "rotating-shield-simulation-runtime", editable = "../Rotating-shield-simulation-runtime" },
+    { name = "scipy", specifier = ">=1.16,<2" },
 ]
 
 [package.metadata.requires-dev]

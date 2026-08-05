@@ -135,3 +135,33 @@ def test_raw_full_spectrum_v2_log_is_accepted(tmp_path: Path) -> None:
         "energy_bin_edges_keV",
         "spectrum_counts",
     }
+
+
+def test_current_runtime_forward_manifest_v4_is_accepted(tmp_path: Path) -> None:
+    """MeasurementLog v2 accepts the runtime's strengthened v4 physics identity."""
+    log_dir = _materialize_v2_log(tmp_path / "log-v2-forward-v4")
+    forward_path = log_dir / "forward_model_manifest.json"
+    manifest_path = log_dir / "run_manifest.json"
+    forward = json.loads(forward_path.read_text(encoding="utf-8"))
+    forward.update(
+        {
+            "schema_version": 4,
+            "detector_response_contract_sha256": "1" * 64,
+            "shield_pose_contract_id": "shield-pose-contract-v1",
+            "shield_pose_contract_sha256": "2" * 64,
+            "obstacle_material_contract_id": "obstacle-material-contract-v1",
+            "obstacle_material_contract_sha256": "3" * 64,
+            "transport_physics_table_contract_id": "transport-table-contract-v1",
+            "transport_physics_table_contract_sha256": "4" * 64,
+        }
+    )
+    _write_json(forward_path, forward)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    forward_hash = sha256_file(forward_path)
+    manifest["forward_model_manifest_sha256"] = forward_hash
+    manifest["artifact_hashes"]["forward_model_manifest.json"] = forward_hash
+    _write_json(manifest_path, manifest)
+
+    info = validate_measurement_log(log_dir)
+
+    assert info.forward_model_manifest["schema_version"] == 4

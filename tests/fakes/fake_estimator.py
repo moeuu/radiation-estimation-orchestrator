@@ -77,13 +77,14 @@ def assert_truth_isolated(log: Path) -> None:
 def provenance(args: argparse.Namespace, *, family: str, variant: str) -> dict[str, object]:
     file_digest = file_hash(args.config)
     resolved_payload = json.loads(args.config.read_text(encoding="utf-8"))
+    log_manifest = json.loads((args.log / "run_manifest.json").read_text(encoding="utf-8"))
     resolved_digest = sha256(json_bytes(resolved_payload)).hexdigest()
     base = {
         "estimator_family": family,
         "estimator_variant": variant,
         "estimator_repository": f"fake://{family}",
         "estimator_commit": args.commit,
-        "measurement_log_schema_version": 1,
+        "measurement_log_schema_version": int(log_manifest["schema_version"]),
         "measurement_log_sha256": log_hash(args.log),
         "config_sha256": file_digest,
         "command": list(os.sys.argv),
@@ -118,6 +119,7 @@ def pf_result(args: argparse.Namespace) -> None:
         steps = np.asarray(archive["step_id"], dtype=int)
         stations = np.asarray(archive["station_id"], dtype=int)
     prov = provenance(args, family="particle_filter", variant=args.profile)
+    measurement_log_schema_version = int(manifest["schema_version"])
     modes = {
         "Cs-137": ([1.08, 0.95, 0.04], 118000.0),
         "Co-60": ([4.92, 4.55, 2.94], 92500.0),
@@ -166,8 +168,12 @@ def pf_result(args: argparse.Namespace) -> None:
                 for isotope, value in modes.items()
             ]
             line = {
-                "schema_version": 1,
-                "estimator_family": "particle_filter",
+                "schema_version": 2 if measurement_log_schema_version == 2 else 1,
+                "estimator_family": (
+                    "pure_particle_filter"
+                    if measurement_log_schema_version == 2
+                    else "particle_filter"
+                ),
                 "step_id": int(step),
                 "station_id": int(station),
                 "predictive_deviance": float(max(0, 18 - index)),
@@ -177,9 +183,9 @@ def pf_result(args: argparse.Namespace) -> None:
     write_json(
         args.output / "pf_diagnostics.json",
         {
-            "schema_version": 1,
+            "schema_version": 2 if measurement_log_schema_version == 2 else 1,
             "record_count": int(manifest["record_count"]),
-            "measurement_log_schema_version": 1,
+            "measurement_log_schema_version": int(manifest["schema_version"]),
             "measurement_log_sha256": prov["measurement_log_sha256"],
             "resolved_config_sha256": prov["resolved_config_sha256"],
             "estimator_commit": args.commit,
@@ -190,7 +196,10 @@ def pf_result(args: argparse.Namespace) -> None:
 
 def mle_result(args: argparse.Namespace, mode: str) -> None:
     config = json.loads(args.config.read_text())
-    isotope_names = tuple(config["isotope_names"])
+    manifest = json.loads((args.log / "run_manifest.json").read_text(encoding="utf-8"))
+    with np.load(args.log / "observations.npz", allow_pickle=False) as observation_archive:
+        spectrum_shape = np.asarray(observation_archive["spectrum_counts"]).shape
+    isotope_names = tuple(config.get("isotope_names", manifest["isotopes"]))
     prov = provenance(args, family="surface_mle", variant=mode)
     clusters = [
         {
@@ -260,9 +269,7 @@ def mle_result(args: argparse.Namespace, mode: str) -> None:
     strengths[0, 0] = 117500.0
     strengths[1, 1] = 91500.0
     strengths[2, 2] = 64000.0
-    write_npz(
-        args.output / "mle_estimate.npz",
-        {
+    arrays = {
             "schema_version": np.asarray(1, dtype=np.int64),
             "diagnostics_sha256": np.asarray(sha256(diagnostic_bytes).hexdigest()),
             "isotope_names": np.asarray(isotope_names),
@@ -277,8 +284,10 @@ def mle_result(args: argparse.Namespace, mode: str) -> None:
             "iterations": np.asarray(42, dtype=np.int64),
             "converged": np.asarray(1, dtype=np.uint8),
             "patch_count": np.asarray(6, dtype=np.int64),
-        },
-    )
+    }
+    if mode == "spectral":
+        arrays["predicted_spectra"] = np.ones(spectrum_shape, dtype=np.float64)
+    write_npz(args.output / "mle_estimate.npz", arrays)
 
 
 def parser() -> argparse.ArgumentParser:

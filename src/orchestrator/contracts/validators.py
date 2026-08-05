@@ -7,6 +7,7 @@ import zipfile
 from dataclasses import dataclass
 from importlib.resources import files
 from itertools import pairwise
+from math import log
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -15,7 +16,7 @@ import numpy as np
 from jsonschema import Draft202012Validator
 from numpy.typing import NDArray
 
-from orchestrator.errors import ContractError, TruthIsolationError
+from orchestrator.errors import ContractError, DataReuseError, TruthIsolationError
 from orchestrator.hashing import (
     canonical_json_bytes,
     directory_inventory,
@@ -246,6 +247,268 @@ class HybridResultInfo:
         return tuple(MappingProxyType(cluster) for cluster in clusters)
 
 
+@dataclass(frozen=True, slots=True)
+class SpectralMLESnapshotInfo:
+    """Validated raw-spectrum station-prefix MLE snapshot for hybrid v2."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    snapshot_sha256: str
+
+    @property
+    def cutoff_step(self) -> int:
+        prefix = self.payload["prefix"]
+        assert isinstance(prefix, dict)
+        return int(prefix["data_cutoff_step"])
+
+    @property
+    def cutoff_station(self) -> int:
+        prefix = self.payload["prefix"]
+        assert isinstance(prefix, dict)
+        return int(prefix["data_cutoff_station"])
+
+
+@dataclass(frozen=True, slots=True)
+class FutureSpectralCandidateScoreInfo:
+    """Validated block-grouped future-only spectral score artifact."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    score_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class FutureSpectralScoreRequestInfo:
+    """Validated once-only step selection for incremental spectral scoring."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    request_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PFCheckpointInfo:
+    """Validated causal PF state checkpoint and its opaque PF-owned payload."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    checkpoint_sha256: str
+
+    @property
+    def cutoff_step(self) -> int:
+        return int(self.payload["data_cutoff_step"])
+
+
+@dataclass(frozen=True, slots=True)
+class PFRJDirectiveInfo:
+    """Validated proposal-only MLE-informed RJ kernel directive."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    directive_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class PFRJReceiptInfo:
+    """Validated PF-owned exact reversible-jump receipt."""
+
+    path: Path
+    payload: MappingProxyType[str, object]
+    receipt_sha256: str
+
+
+def validate_pf_checkpoint_v1(
+    path: str | Path,
+    *,
+    expected_source_run_id: str | None = None,
+    expected_prefix_measurement_log_sha256: str | None = None,
+) -> PFCheckpointInfo:
+    """Validate checkpoint lineage while treating PF state bytes as opaque."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "pf_checkpoint_v1_schema.json", label="PF checkpoint v1")
+    cutoff = int(payload["data_cutoff_step"])
+    covered = tuple(int(value) for value in payload["covered_step_ids"])
+    if covered != tuple(range(cutoff + 1)):
+        raise DataReuseError("PF checkpoint must cover the exact causal prefix 0..cutoff.")
+    if expected_source_run_id is not None and payload["source_run_id"] != expected_source_run_id:
+        raise ContractError("PF checkpoint source run differs from its MeasurementLog.")
+    if (
+        expected_prefix_measurement_log_sha256 is not None
+        and payload["prefix_measurement_log_sha256"]
+        != expected_prefix_measurement_log_sha256
+    ):
+        raise ContractError("PF checkpoint prefix log hash differs from its input.")
+    artifact_name = str(payload["state_artifact"])
+    artifact = (source.parent / artifact_name).resolve()
+    try:
+        artifact.relative_to(source.parent)
+    except ValueError as exc:
+        raise ContractError("PF checkpoint state artifact escapes its bundle.") from exc
+    if artifact.is_symlink() or not artifact.is_file():
+        raise ContractError("PF checkpoint state artifact is missing or a symlink.")
+    if sha256_file(artifact) != payload["state_artifact_sha256"]:
+        raise ContractError("PF checkpoint state artifact hash mismatch.")
+    return PFCheckpointInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        checkpoint_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_pf_rj_directive_v1(
+    path: str | Path,
+    *,
+    expected_snapshot: SpectralMLESnapshotInfo | None = None,
+) -> PFRJDirectiveInfo:
+    """Validate proposal geometry and forbid deletion/weight commands."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "pf_rj_directive_v1_schema.json", label="PF RJ directive v1")
+    regions = payload["birth_regions"]
+    assert isinstance(regions, list)
+    region_ids: set[str] = set()
+    for region in regions:
+        assert isinstance(region, dict)
+        candidate_id = str(region["candidate_id"])
+        if candidate_id in region_ids:
+            raise ContractError("PF RJ directive contains duplicate birth candidates.")
+        region_ids.add(candidate_id)
+        covariance = np.asarray(region["covariance_xyz"], dtype=float)
+        if not np.allclose(covariance, covariance.T, rtol=1e-9, atol=1e-12):
+            raise ContractError("PF RJ birth covariance must be symmetric.")
+        if float(np.min(np.linalg.eigvalsh(covariance))) < -1e-9:
+            raise ContractError("PF RJ birth covariance must be positive semidefinite.")
+    if region_ids != set(str(value) for value in payload["verified_candidate_ids"]):
+        raise ContractError("Every verified RJ candidate must define exactly one birth region.")
+    if expected_snapshot is not None:
+        if payload["spectral_snapshot_id"] != expected_snapshot.payload["snapshot_id"]:
+            raise ContractError("PF RJ directive references a different spectral snapshot.")
+        if payload["spectral_snapshot_sha256"] != expected_snapshot.snapshot_sha256:
+            raise ContractError("PF RJ directive spectral snapshot hash mismatch.")
+        if int(payload["proposal_data_cutoff_step"]) != expected_snapshot.cutoff_step:
+            raise DataReuseError(
+                "PF RJ proposal cutoff differs from its spectral snapshot."
+            )
+        if int(payload["proposal_data_cutoff_station"]) != expected_snapshot.cutoff_station:
+            raise DataReuseError(
+                "PF RJ proposal station differs from its spectral snapshot."
+            )
+        if int(payload["data_cutoff_step"]) <= expected_snapshot.cutoff_step:
+            raise DataReuseError(
+                "PF RJ target must include future verification observations."
+            )
+        snapshot_ids = {
+            str(candidate["candidate_id"])
+            for candidate in expected_snapshot.payload["candidates"]  # type: ignore[union-attr]
+            if isinstance(candidate, dict)
+        }
+        if not region_ids.issubset(snapshot_ids):
+            raise ContractError("PF RJ directive contains a candidate absent from its snapshot.")
+    return PFRJDirectiveInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        directive_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_pf_rj_receipt_v1(
+    path: str | Path,
+    *,
+    expected_directive: PFRJDirectiveInfo | None = None,
+    expected_output_checkpoint: PFCheckpointInfo | None = None,
+) -> PFRJReceiptInfo:
+    """Recompute the reported exact-RJ acceptance decision from PF-owned terms."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(payload, "pf_rj_receipt_v1_schema.json", label="PF RJ receipt v1")
+    if expected_directive is not None:
+        if payload["directive_id"] != expected_directive.payload["directive_id"]:
+            raise ContractError("PF RJ receipt belongs to a different directive.")
+        if payload["directive_sha256"] != expected_directive.directive_sha256:
+            raise ContractError("PF RJ receipt directive hash mismatch.")
+        if payload["data_cutoff_step"] != expected_directive.payload["data_cutoff_step"]:
+            raise DataReuseError("PF RJ receipt target cutoff differs from its directive.")
+        if (
+            payload["prefix_measurement_log_sha256"]
+            != expected_directive.payload["prefix_measurement_log_sha256"]
+        ):
+            raise DataReuseError("PF RJ receipt target prefix differs from its directive.")
+        if (
+            payload["pf_checkpoint_before_sha256"]
+            != expected_directive.payload["pf_checkpoint_sha256"]
+        ):
+            raise DataReuseError("PF RJ receipt used a different input checkpoint.")
+        move_payload = payload["move"]
+        proposal_payload = payload["proposal"]
+        kernel_payload = expected_directive.payload["kernel"]
+        assert all(
+            isinstance(value, dict)
+            for value in (move_payload, proposal_payload, kernel_payload)
+        )
+        if move_payload["candidate_id"] not in expected_directive.payload[
+            "verified_candidate_ids"
+        ]:
+            raise ContractError("PF RJ receipt selected an unverified candidate.")
+        if (
+            proposal_payload["dimension_matching_transform"]
+            != kernel_payload["dimension_matching_transform"]
+        ):
+            raise ContractError("PF RJ receipt used a different dimension transform.")
+        state_payload = payload["state"]
+        assert isinstance(state_payload, dict)
+        if (
+            state_payload["before_sha256"]
+            != expected_directive.payload["pf_state_before_sha256"]
+        ):
+            raise ContractError("PF RJ receipt input state hash differs from its directive.")
+    target = payload["target"]
+    proposal = payload["proposal"]
+    acceptance = payload["acceptance"]
+    move = payload["move"]
+    state = payload["state"]
+    assert all(isinstance(value, dict) for value in (target, proposal, acceptance, move, state))
+    expected_log_alpha = min(
+        0.0,
+        float(target["log_density_after"])
+        - float(target["log_density_before"])
+        + float(proposal["log_reverse_density"])
+        - float(proposal["log_forward_density"])
+        + float(proposal["log_abs_jacobian"]),
+    )
+    if not np.isclose(
+        expected_log_alpha,
+        float(acceptance["log_acceptance_ratio"]),
+        rtol=1e-10,
+        atol=1e-12,
+    ):
+        raise ContractError("PF RJ receipt has an inconsistent acceptance ratio.")
+    accepted = log(float(acceptance["uniform_draw"])) < expected_log_alpha
+    if bool(acceptance["accepted"]) != accepted:
+        raise ContractError("PF RJ receipt acceptance decision is inconsistent.")
+    before = int(move["cardinality_before"])
+    after = int(move["cardinality_after"])
+    if accepted:
+        expected_after = before + (1 if move["kind"] == "birth" else -1)
+        if expected_after < 0 or after != expected_after:
+            raise ContractError("Accepted PF RJ move has inconsistent cardinality.")
+        if state["before_sha256"] == state["after_sha256"]:
+            raise ContractError("Accepted PF RJ move did not change state identity.")
+    elif after != before or state["before_sha256"] != state["after_sha256"]:
+        raise ContractError("Rejected PF RJ move must preserve cardinality and state.")
+    if expected_output_checkpoint is not None:
+        expected_after_sha256 = expected_output_checkpoint.payload[
+            "state_artifact_sha256"
+        ]
+        if state["after_sha256"] != expected_after_sha256:
+            raise ContractError("PF RJ receipt output state differs from its checkpoint.")
+    return PFRJReceiptInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        receipt_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
 def _schema(name: str) -> dict[str, object]:
     resource = files("orchestrator.contracts").joinpath(name)
     try:
@@ -273,6 +536,194 @@ def _validate_schema(payload: object, schema_name: str, *, label: str) -> None:
     raise ContractError(f"{label} violates {schema_name}: {'; '.join(details)}{remainder}")
 
 
+def validate_spectral_mle_snapshot_v3(
+    path: str | Path,
+    *,
+    expected_source_run_id: str | None = None,
+    expected_prefix_measurement_log_sha256: str | None = None,
+) -> SpectralMLESnapshotInfo:
+    """Validate exact-prefix lineage and spectral candidate geometry."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "spectral_mle_snapshot_v3_schema.json",
+        label="spectral MLE snapshot v3",
+    )
+    if expected_source_run_id is not None and payload["source_run_id"] != expected_source_run_id:
+        raise ContractError("Spectral snapshot source run does not match its MeasurementLog.")
+    prefix = payload["prefix"]
+    assert isinstance(prefix, dict)
+    cutoff = int(prefix["data_cutoff_step"])
+    covered = tuple(int(value) for value in prefix["covered_step_ids"])
+    if covered != tuple(range(cutoff + 1)):
+        raise ContractError("Spectral snapshot must cover the exact causal prefix 0..cutoff.")
+    if (
+        expected_prefix_measurement_log_sha256 is not None
+        and prefix["prefix_measurement_log_sha256"]
+        != expected_prefix_measurement_log_sha256
+    ):
+        raise ContractError("Spectral snapshot prefix log hash differs from its input.")
+    artifacts = payload["artifacts"]
+    assert isinstance(artifacts, dict)
+    shape = artifacts["predicted_spectra_shape"]
+    assert isinstance(shape, list)
+    if int(shape[0]) != len(covered):
+        raise ContractError("Predicted spectra row count must equal the prefix record count.")
+    fit = payload["fit"]
+    assert isinstance(fit, dict)
+    warm = fit["warm_start"]
+    assert isinstance(warm, dict)
+    if bool(warm["used"]) != (warm["source_snapshot_id"] is not None):
+        raise ContractError("Spectral snapshot warm-start identity is inconsistent.")
+    if bool(warm["used"]) != (warm["source_result_sha256"] is not None):
+        raise ContractError("Spectral snapshot warm-start result hash is inconsistent.")
+    candidates = payload["candidates"]
+    assert isinstance(candidates, list)
+    candidate_ids: set[str] = set()
+    for candidate in candidates:
+        assert isinstance(candidate, dict)
+        candidate_id = str(candidate["candidate_id"])
+        if candidate_id in candidate_ids:
+            raise ContractError(f"Duplicate spectral snapshot candidate ID: {candidate_id}")
+        candidate_ids.add(candidate_id)
+        covariance = np.asarray(candidate["covariance_xyz"], dtype=float)
+        if not np.allclose(covariance, covariance.T, rtol=1e-9, atol=1e-12):
+            raise ContractError(f"Spectral candidate {candidate_id} covariance is not symmetric.")
+        if float(np.min(np.linalg.eigvalsh(covariance))) < -1e-9:
+            raise ContractError(f"Spectral candidate {candidate_id} covariance is not PSD.")
+    return SpectralMLESnapshotInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        snapshot_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_future_spectral_candidate_score_v2(
+    path: str | Path,
+    *,
+    expected_snapshot: SpectralMLESnapshotInfo | None = None,
+    expected_request: FutureSpectralScoreRequestInfo | None = None,
+) -> FutureSpectralCandidateScoreInfo:
+    """Validate future-only spectral LLRs grouped by independent observation blocks."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "future_spectral_candidate_score_v2_schema.json",
+        label="future spectral candidate score v2",
+    )
+    cutoff = int(payload["snapshot_data_cutoff_step"])
+    future_steps = tuple(int(value) for value in payload["future_step_ids"])
+    if tuple(sorted(future_steps)) != future_steps or any(step <= cutoff for step in future_steps):
+        raise DataReuseError("Spectral candidate scores must use ordered post-cutoff steps only.")
+    blocks = payload["blocks"]
+    assert isinstance(blocks, list)
+    block_ids: set[str] = set()
+    block_steps: list[int] = []
+    for block in blocks:
+        assert isinstance(block, dict)
+        block_id = str(block["block_id"])
+        if block_id in block_ids:
+            raise ContractError(f"Duplicate future spectral block ID: {block_id}")
+        block_ids.add(block_id)
+        block_steps.extend(int(value) for value in block["step_ids"])
+    if tuple(sorted(block_steps)) != future_steps or len(set(block_steps)) != len(block_steps):
+        raise ContractError("Spectral score blocks must partition future_step_ids exactly once.")
+    candidates = payload["candidates"]
+    assert isinstance(candidates, list)
+    seen_candidates: set[str] = set()
+    for candidate in candidates:
+        assert isinstance(candidate, dict)
+        candidate_id = str(candidate["candidate_id"])
+        if candidate_id in seen_candidates:
+            raise ContractError(f"Duplicate future spectral candidate ID: {candidate_id}")
+        seen_candidates.add(candidate_id)
+        scores = candidate["block_scores"]
+        assert isinstance(scores, list)
+        score_ids = {str(score["block_id"]) for score in scores if isinstance(score, dict)}
+        if score_ids != block_ids or len(scores) != len(block_ids):
+            raise ContractError("Each candidate must have exactly one score for every block.")
+        total = sum(
+            float(score["log_likelihood_ratio"])
+            for score in scores
+            if isinstance(score, dict)
+        )
+        if not np.isclose(
+            total,
+            float(candidate["cumulative_log_likelihood_ratio"]),
+            rtol=1e-10,
+            atol=1e-12,
+        ):
+            raise ContractError("Candidate cumulative spectral LLR differs from block scores.")
+    if expected_snapshot is not None:
+        if payload["snapshot_id"] != expected_snapshot.payload["snapshot_id"]:
+            raise ContractError("Future spectral score references a different snapshot ID.")
+        if payload["snapshot_sha256"] != expected_snapshot.snapshot_sha256:
+            raise ContractError("Future spectral score references a different snapshot hash.")
+        if cutoff != expected_snapshot.cutoff_step:
+            raise ContractError("Future spectral score cutoff differs from its snapshot.")
+        snapshot_candidates = {
+            str(candidate["candidate_id"])
+            for candidate in expected_snapshot.payload["candidates"]  # type: ignore[union-attr]
+            if isinstance(candidate, dict)
+        }
+        if seen_candidates != snapshot_candidates:
+            raise ContractError("Future spectral scores must cover every frozen candidate once.")
+    if expected_request is not None:
+        if payload["snapshot_id"] != expected_request.payload["snapshot_id"]:
+            raise ContractError("Future spectral score references a different request snapshot.")
+        if payload["snapshot_sha256"] != expected_request.payload["snapshot_sha256"]:
+            raise ContractError("Future spectral score snapshot hash differs from request.")
+        if payload["current_measurement_log_sha256"] != expected_request.payload[
+            "current_measurement_log_sha256"
+        ]:
+            raise ContractError("Future spectral score log hash differs from request.")
+        if list(future_steps) != expected_request.payload["requested_future_step_ids"]:
+            raise DataReuseError("Future spectral score consumed steps outside its request.")
+    return FutureSpectralCandidateScoreInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        score_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
+def validate_future_spectral_score_request_v1(
+    path: str | Path,
+    *,
+    expected_snapshot: SpectralMLESnapshotInfo | None = None,
+) -> FutureSpectralScoreRequestInfo:
+    """Validate disjoint, post-cutoff incremental scoring rows."""
+    source = Path(path).resolve()
+    payload = load_json(source)
+    _validate_schema(
+        payload,
+        "future_spectral_score_request_v1_schema.json",
+        label="future spectral score request v1",
+    )
+    cutoff = int(payload["snapshot_data_cutoff_step"])
+    requested = tuple(int(value) for value in payload["requested_future_step_ids"])
+    previous = tuple(int(value) for value in payload["previously_scored_step_ids"])
+    if requested != tuple(sorted(requested)) or previous != tuple(sorted(previous)):
+        raise ContractError("Spectral score request steps must be sorted.")
+    if any(step <= cutoff for step in (*requested, *previous)):
+        raise DataReuseError("Spectral score request must contain only post-cutoff steps.")
+    if set(requested).intersection(previous):
+        raise DataReuseError("Spectral score request would reuse previously scored steps.")
+    if expected_snapshot is not None:
+        if payload["snapshot_id"] != expected_snapshot.payload["snapshot_id"]:
+            raise ContractError("Spectral score request references a different snapshot.")
+        if payload["snapshot_sha256"] != expected_snapshot.snapshot_sha256:
+            raise ContractError("Spectral score request snapshot hash mismatch.")
+        if cutoff != expected_snapshot.cutoff_step:
+            raise DataReuseError("Spectral score request cutoff differs from snapshot.")
+    return FutureSpectralScoreRequestInfo(
+        path=source,
+        payload=MappingProxyType(payload),
+        request_sha256=sha256_bytes(canonical_json_bytes(payload)),
+    )
+
+
 def _require_directory(root: str | Path, names: tuple[str, ...], *, label: str) -> Path:
     supplied = Path(root)
     if supplied.is_symlink():
@@ -294,14 +745,18 @@ def _normalized_name(value: object) -> str:
 
 
 def _is_model_source_semantics(name: str) -> bool:
-    return name.startswith(("sourcerate", "sourceextent"))
+    return name.startswith(("sourcerate", "sourceextent")) or (
+        name.startswith("source") and name.endswith("semantics")
+    )
 
 
 def _indicates_realized_truth(name: str, *, key: bool) -> bool:
-    if "truth" in name or any(fragment in name for fragment in _REALIZED_SOURCE_FRAGMENTS):
+    if "truth" in name:
         return True
     if _is_model_source_semantics(name):
         return False
+    if any(fragment in name for fragment in _REALIZED_SOURCE_FRAGMENTS):
+        return True
     return key and name in _REALIZED_SOURCE_NAMES
 
 
@@ -321,6 +776,12 @@ def _reject_realized_truth(payload: object, *, label: str, location: str = "$") 
                 raise TruthIsolationError(
                     f"{label} may not expose realized truth at {child_location}."
                 )
+            # Runtime metadata may describe a source-coordinate convention with an
+            # identifier such as ``exact_surface_chart_uv_evaluation_truth``. The key
+            # identifies this as semantics, not realized source data or a file pointer.
+            # Keys that themselves name truth remain rejected above.
+            if key.endswith("semantics") and isinstance(value, str):
+                continue
             _reject_realized_truth(value, label=label, location=child_location)
         return
     if isinstance(payload, list | tuple):

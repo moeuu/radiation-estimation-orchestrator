@@ -243,6 +243,29 @@ def test_measurement_log_allows_source_rate_and_extent_model_semantics(
     validate_measurement_log(copied)
 
 
+def test_measurement_log_allows_runtime_source_anchor_semantics_token(
+    measurement_log_path: Path, tmp_path: Path
+) -> None:
+    copied = tmp_path / "log"
+    shutil.copytree(measurement_log_path, copied)
+    metadata_path = copied / "observation_metadata.jsonl"
+    lines = metadata_path.read_text(encoding="utf-8").splitlines()
+    first = json.loads(lines[0])
+    first["metadata"]["source_anchor_semantics"] = (
+        "exact_surface_chart_uv_evaluation_truth"
+    )
+    lines[0] = json.dumps(first, sort_keys=True, separators=(",", ":"))
+    metadata_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest_path = copied / "run_manifest.json"
+    manifest = load_json(manifest_path)
+    artifact_hashes = manifest["artifact_hashes"]
+    assert isinstance(artifact_hashes, dict)
+    artifact_hashes["observation_metadata.jsonl"] = sha256_file(metadata_path)
+    write_json_atomic(manifest_path, manifest, overwrite=True)
+
+    validate_measurement_log(copied)
+
+
 def test_measurement_log_source_layout_path_is_always_null(
     measurement_log_path: Path, tmp_path: Path
 ) -> None:

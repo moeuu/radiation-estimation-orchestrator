@@ -45,20 +45,24 @@ def measurement_records_sha256(
     for index in range(count):
         metadata_payload = json.loads(metadata_lines[index])
         metadata = metadata_payload["metadata"]
-        variance = (
-            np.asarray(arrays["spectrum_variance"][index], dtype=float).tolist()
-            if bool(arrays["spectrum_variance_present"][index])
-            else None
-        )
+        variance = None
+        if log.schema_version == 1 and bool(arrays["spectrum_variance_present"][index]):
+            variance = np.asarray(
+                arrays["spectrum_variance"][index], dtype=float
+            ).tolist()
         isotope_counts: dict[str, float] | None = None
-        if bool(arrays["isotope_counts_record_present"][index]):
+        if log.schema_version == 1 and bool(
+            arrays["isotope_counts_record_present"][index]
+        ):
             isotope_counts = {
                 isotope: float(arrays["isotope_counts"][index, isotope_index])
                 for isotope_index, isotope in enumerate(isotopes)
                 if bool(arrays["isotope_counts_present"][index, isotope_index])
             }
         covariance: dict[str, dict[str, float]] | None = None
-        if bool(arrays["isotope_count_covariance_record_present"][index]):
+        if log.schema_version == 1 and bool(
+            arrays["isotope_count_covariance_record_present"][index]
+        ):
             covariance = {
                 row_isotope: {
                     column_isotope: float(

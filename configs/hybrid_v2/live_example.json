@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "milestone": "pf_mle_hybrid_live_v2",
+  "hybrid_run_id": "replace-with-holdout-run-id",
+  "output_directory": "../../hybrid-results/live-v2-example",
+  "mode": "spectral_exact_rj",
+  "estimator_configs": {
+    "pf_strict": "../estimators/pf_strict_shared_small.json",
+    "mle_spectral": "../estimators/mle_spectral_shared_small.json"
+  },
+  "scheduler": {
+    "station_interval": 2,
+    "minimum_completed_stations": 2,
+    "cooldown_stations": 1,
+    "normalized_deviance_threshold": 2.0,
+    "mismatch_streak": 2
+  },
+  "verification": {
+    "support_log_likelihood_ratio": 6.0,
+    "reject_log_likelihood_ratio": -6.0,
+    "minimum_blocks": 2,
+    "minimum_distinct_stations": 2,
+    "minimum_distinct_heights": 2,
+    "minimum_distinct_shield_programs": 2,
+    "pending_planner_weight": 0.2,
+    "verified_planner_weight": 1.0
+  },
+  "relocation_kernel": {
+    "position_sigma_xyz_m": [0.5, 0.5, 0.5],
+    "defensive_weight": 0.1
+  },
+  "runtime": {
+    "repository_path": "../../../Rotating-shield-simulation-runtime",
+    "revision": "16d3f0e59f04a6e81698c100b89d5dd98d696039",
+    "scenario_path": "PRIVATE_RESUMABLE_PROTOCOL_V2_SCENARIO.json",
+    "session_state_directory": "../../hybrid-results/live-v2-example/runtime-session",
+    "transcript_path": "../../hybrid-results/live-v2-example/runtime.jsonl",
+    "timeout_s": 3600,
+    "require_3d_candidate_diversity": true
+  },
+  "planner": {
+    "dwell_time_s": 10.0,
+    "dsspp_config": {
+      "candidate_count": 1024,
+      "augment_candidates": false,
+      "include_runtime_rescue_modes": false,
+      "include_global_surface_rescue_modes": false
+    }
+  },
+  "mission_budget": {
+    "max_actions": 48,
+    "max_total_time_s": 3600.0,
+    "max_live_time_s": 480.0,
+    "max_travel_time_s": 2700.0,
+    "max_shield_actuation_time_s": 420.0
+  },
+  "random_seed": 20260805,
+  "relocation_seed": 20260806
+}

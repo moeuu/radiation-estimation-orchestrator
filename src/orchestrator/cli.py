@@ -1,4 +1,4 @@
-"""Public orchestration, validation, and forward-conformance CLI."""
+"""Public runtime acquisition, local inference, hybrid, and validation CLI."""
 
 from __future__ import annotations
 
@@ -7,29 +7,39 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from .adapters import load_estimator_pins
-from .adapters.base import verify_repository_revision
 from .acquisition import acquire_measurement_log
 from .benchmark import BenchmarkConfig, BenchmarkRunner
-from .conformance import CLIForwardResponseProvider, run_forward_response_conformance
 from .contracts import (
+    validate_future_spectral_score_request_v1,
+    validate_hybrid_planning_request,
     validate_measurement_log,
     validate_mle_result,
     validate_mle_snapshot,
+    validate_pf_checkpoint_v1,
     validate_pf_result,
+    validate_pf_rj_directive_v1,
+    validate_pf_rj_receipt_v1,
+    validate_spectral_mle_snapshot_v3,
 )
 from .errors import ContractError
-from .hashing import load_json, sha256_file
-from .hybrid.controller import HybridController
-from .hybrid.run_config import HybridRunConfig
+from .estimators.artifacts import run_pf_checkpoint, run_spectral_mle
+from .estimators.future_scoring import score_future_spectra
+from .estimators.planning import plan_from_checkpoint
+from .estimators.rj import apply_exact_rj
+from .evaluation import evaluate_spectral_mission
+from .hashing import load_json, write_json_atomic
+from .hybrid_v2.live import LiveSpectralHybridRunner
+from .hybrid_v2.live_config import LiveSpectralHybridRunConfig
+from .hybrid_v2.offline import SpectralOfflineHybridController
+from .hybrid_v2.run_config import SpectralHybridRunConfig
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="radiation-estimation-orchestrator",
         description=(
-            "Attach pinned PF/MLE estimators to one shared-runtime MeasurementLog "
-            "without duplicating simulation source."
+            "Run in-repository PF/MLE/hybrid inference over MeasurementLogs produced "
+            "by the shared simulation runtime."
         ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
@@ -38,13 +48,73 @@ def _parser() -> argparse.ArgumentParser:
         help="Run a private plan through the shared simulation runtime.",
     )
     acquire.add_argument("--plan", type=Path, required=True)
-    benchmark = commands.add_parser("benchmark", help="Run the complete three-estimator benchmark.")
-    benchmark.add_argument("--config", type=Path, required=True)
-    hybrid = commands.add_parser(
-        "hybrid-replay",
-        help="Run causal prefix MLE plus target-preserving PF relocation replay.",
+    benchmark = commands.add_parser(
+        "benchmark", help="Run a versioned pure-estimator same-log benchmark."
     )
-    hybrid.add_argument("--config", type=Path, required=True)
+    benchmark.add_argument("--config", type=Path, required=True)
+    hybrid_v2 = commands.add_parser(
+        "hybrid-v2-replay",
+        help="Run raw-spectrum causal PF plus spectral-MLE replay.",
+    )
+    hybrid_v2.add_argument("--config", type=Path, required=True)
+    hybrid_v2_live = commands.add_parser(
+        "hybrid-v2-live",
+        help="Run or resume collision-attested live 3-D PF plus spectral-MLE.",
+    )
+    hybrid_v2_live.add_argument("--config", type=Path, required=True)
+    evaluate_live = commands.add_parser(
+        "evaluate-live",
+        help="Open separate truth only after a completed live hybrid mission.",
+    )
+    evaluate_live.add_argument("--manifest", type=Path, required=True)
+    evaluate_live.add_argument("--truth", type=Path, required=True)
+    evaluate_live.add_argument("--output", type=Path, required=True)
+
+    pf_checkpoint = commands.add_parser(
+        "pf-checkpoint",
+        help="Run or resume the local strict full-spectrum PF.",
+    )
+    pf_checkpoint.add_argument("--measurement-log", type=Path, required=True)
+    pf_checkpoint.add_argument("--config", type=Path, required=True)
+    pf_checkpoint.add_argument("--output-dir", type=Path, required=True)
+    pf_checkpoint.add_argument("--seed", type=int, default=0)
+    pf_checkpoint.add_argument("--checkpoint-in", type=Path, default=None)
+    spectral_mle = commands.add_parser(
+        "spectral-mle",
+        help="Run the local all-surface raw-spectrum MLE.",
+    )
+    spectral_mle.add_argument("--measurement-log", type=Path, required=True)
+    spectral_mle.add_argument("--config", type=Path, required=True)
+    spectral_mle.add_argument("--output-dir", type=Path, required=True)
+    spectral_mle.add_argument("--warm-start", type=Path, default=None)
+    spectral_score = commands.add_parser(
+        "future-spectral-score",
+        help="Score frozen MLE candidates on once-only future spectral blocks.",
+    )
+    spectral_score.add_argument("--measurement-log", type=Path, required=True)
+    spectral_score.add_argument("--config", type=Path, required=True)
+    spectral_score.add_argument("--snapshot-result", type=Path, required=True)
+    spectral_score.add_argument("--snapshot", type=Path, required=True)
+    spectral_score.add_argument("--request", type=Path, required=True)
+    spectral_score.add_argument("--output", type=Path, required=True)
+    exact_rj = commands.add_parser(
+        "exact-rj",
+        help="Apply one local PF-owned exact reversible-jump directive.",
+    )
+    exact_rj.add_argument("--measurement-log", type=Path, required=True)
+    exact_rj.add_argument("--config", type=Path, required=True)
+    exact_rj.add_argument("--checkpoint-in", type=Path, required=True)
+    exact_rj.add_argument("--directive", type=Path, required=True)
+    exact_rj.add_argument("--output-dir", type=Path, required=True)
+    checkpoint_plan = commands.add_parser(
+        "checkpoint-plan",
+        help="Plan the next attested 3-D action from a local PF checkpoint.",
+    )
+    checkpoint_plan.add_argument("--measurement-log", type=Path, required=True)
+    checkpoint_plan.add_argument("--config", type=Path, required=True)
+    checkpoint_plan.add_argument("--checkpoint-in", type=Path, required=True)
+    checkpoint_plan.add_argument("--request", type=Path, required=True)
+    checkpoint_plan.add_argument("--output", type=Path, required=True)
 
     validate_log = commands.add_parser(
         "validate-log",
@@ -61,65 +131,28 @@ def _parser() -> argparse.ArgumentParser:
         help="Validate the reserved future MLESnapshot/data_cutoff contract.",
     )
     validate_snapshot.add_argument("--snapshot", type=Path, required=True)
-
-    pins = commands.add_parser("verify-pins", help="Verify local estimator checkouts against pins.")
-    pins.add_argument("--registry", type=Path, default=Path("PINNED_ESTIMATORS.json"))
-    pins.add_argument("--pf-repository", type=Path, default=None)
-    pins.add_argument("--mle-repository", type=Path, default=None)
-    pins.add_argument(
-        "--allowed-dirty-prefix",
-        action="append",
-        default=["results/", "logs/", "build/", ".cache/", ".venv/"],
+    validate_spectral_snapshot = commands.add_parser(
+        "validate-spectral-snapshot",
+        help="Validate a raw-spectrum hybrid-v2 MLE snapshot.",
     )
-
-    conformance = commands.add_parser(
-        "conformance", help="Compare independent PF/MLE unit-strength response CLIs."
+    validate_spectral_snapshot.add_argument("--snapshot", type=Path, required=True)
+    validate_checkpoint = commands.add_parser(
+        "validate-pf-checkpoint",
+        help="Validate an opaque causal PF checkpoint bundle.",
     )
-    conformance.add_argument("--fixture", type=Path, required=True)
-    conformance.add_argument("--pf-provider", type=Path, required=True)
-    conformance.add_argument("--mle-provider", type=Path, required=True)
-    conformance.add_argument("--output-dir", type=Path, required=True)
-    conformance.add_argument("--rtol", type=float, default=1e-9)
-    conformance.add_argument("--atol", type=float, default=1e-12)
+    validate_checkpoint.add_argument("--checkpoint", type=Path, required=True)
+    validate_rj_directive = commands.add_parser(
+        "validate-rj-directive",
+        help="Validate an MLE-informed exact-RJ proposal directive.",
+    )
+    validate_rj_directive.add_argument("--directive", type=Path, required=True)
+    validate_rj_receipt = commands.add_parser(
+        "validate-rj-receipt",
+        help="Validate and recompute one PF exact-RJ receipt.",
+    )
+    validate_rj_receipt.add_argument("--receipt", type=Path, required=True)
+
     return parser
-
-
-def _provider(path: Path, *, name: str) -> CLIForwardResponseProvider:
-    payload = load_json(path)
-    configured_name = payload.get("provider")
-    repository = payload.get("repository_path")
-    revision = payload.get("revision")
-    revision_type = payload.get("revision_type")
-    require_clean = payload.get("require_clean")
-    command = payload.get("command")
-    if (
-        configured_name != name
-        or not isinstance(repository, str)
-        or not isinstance(revision, str)
-        or len(revision) != 40
-        or any(character not in "0123456789abcdef" for character in revision)
-        or revision_type != "commit"
-        or require_clean is not True
-        or not isinstance(command, list)
-        or not command
-        or not all(isinstance(value, str) for value in command)
-    ):
-        raise ContractError(
-            f"{path} must name provider {name!r}, pin an exact 40-character lowercase "
-            "commit, require a clean checkout, and supply repository_path plus a string "
-            "command array."
-        )
-    repository_path = Path(repository)
-    if not repository_path.is_absolute():
-        repository_path = (path.resolve().parent / repository_path).resolve()
-    return CLIForwardResponseProvider(
-        name,
-        repository_path=repository_path,
-        revision=revision,
-        command_template=tuple(command),
-        provider_config_sha256=sha256_file(path),
-        timeout_s=float(payload.get("timeout_s", 300.0)),
-    )
 
 
 def _print(payload: object) -> None:
@@ -142,12 +175,132 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "benchmark":
-        output = BenchmarkRunner(BenchmarkConfig.load(args.config)).run()
+        config = BenchmarkConfig.load(args.config)
+        if config.schema_version != 2:
+            raise ContractError(
+                "Benchmark v1 is archived; the active CLI accepts runtime-only v2 configs."
+            )
+        output = BenchmarkRunner(config).run()
         _print({"status": "complete", "output_directory": output.as_posix()})
         return 0
-    if args.command == "hybrid-replay":
-        output = HybridController(HybridRunConfig.load(args.config)).run()
+    if args.command == "hybrid-v2-replay":
+        output = SpectralOfflineHybridController(
+            SpectralHybridRunConfig.load(args.config)
+        ).run()
         _print({"status": "inference_complete", "output_directory": output.as_posix()})
+        return 0
+    if args.command == "hybrid-v2-live":
+        output = LiveSpectralHybridRunner(
+            LiveSpectralHybridRunConfig.load(args.config)
+        ).run()
+        _print({"status": "mission_complete", "output_directory": output.as_posix()})
+        return 0
+    if args.command == "evaluate-live":
+        manifest = load_json(args.manifest)
+        if manifest.get("milestone") != "pf_mle_hybrid_live_v2":
+            raise ContractError("Live evaluation requires a completed live-v2 manifest.")
+        authoritative = manifest.get("authoritative_result")
+        if not isinstance(authoritative, dict):
+            raise ContractError("Live manifest lacks its authoritative result.")
+        log_path = authoritative.get("measurement_log_path")
+        result_path = authoritative.get("result_path")
+        if not isinstance(log_path, str) or not isinstance(result_path, str):
+            raise ContractError("Live authoritative result paths are invalid.")
+        log = validate_measurement_log(log_path)
+        result = validate_mle_result(
+            result_path,
+            expected_mode="spectral",
+            expected_log_sha256=log.measurement_log_sha256,
+        )
+        if result.result_sha256 != authoritative.get("result_sha256"):
+            raise ContractError("Live final MLE differs from the mission manifest.")
+        metrics = evaluate_spectral_mission(
+            measurement_log=log,
+            truth_path=args.truth,
+            mle_spectral_result=result,
+            estimator_runtime_s=float(manifest.get("estimator_runtime_s", 0.0)),
+        )
+        output = write_json_atomic(args.output, metrics)
+        _print({"status": "evaluation_complete", "output": output.as_posix()})
+        return 0
+    if args.command == "pf-checkpoint":
+        checkpoint = (
+            None
+            if args.checkpoint_in is None
+            else validate_pf_checkpoint_v1(args.checkpoint_in)
+        )
+        artifacts = run_pf_checkpoint(
+            args.measurement_log,
+            config_path=args.config,
+            output_directory=args.output_dir,
+            random_seed=args.seed,
+            checkpoint_in=checkpoint,
+        )
+        _print(
+            {
+                "status": "complete",
+                "result_sha256": artifacts.result.result_sha256,
+                "checkpoint_sha256": artifacts.checkpoint.checkpoint_sha256,
+            }
+        )
+        return 0
+    if args.command == "spectral-mle":
+        warm = None if args.warm_start is None else validate_mle_result(args.warm_start)
+        result = run_spectral_mle(
+            args.measurement_log,
+            config_path=args.config,
+            output_directory=args.output_dir,
+            warm_start_result=warm,
+        )
+        _print(
+            {
+                "status": "complete",
+                "converged": result.diagnostics["converged"],
+                "result_sha256": result.result_sha256,
+            }
+        )
+        return 0
+    if args.command == "future-spectral-score":
+        result = score_future_spectra(
+            args.measurement_log,
+            config_path=args.config,
+            snapshot_result=validate_mle_result(args.snapshot_result, expected_mode="spectral"),
+            snapshot=validate_spectral_mle_snapshot_v3(args.snapshot),
+            request=validate_future_spectral_score_request_v1(args.request),
+            output_path=args.output,
+        )
+        _print({"status": "complete", "score_sha256": result.score_sha256})
+        return 0
+    if args.command == "exact-rj":
+        checkpoint, receipt = apply_exact_rj(
+            args.measurement_log,
+            config_path=args.config,
+            checkpoint_in=validate_pf_checkpoint_v1(args.checkpoint_in),
+            directive=validate_pf_rj_directive_v1(args.directive),
+            output_directory=args.output_dir,
+        )
+        _print(
+            {
+                "status": "complete",
+                "checkpoint_sha256": checkpoint.checkpoint_sha256,
+                "receipt_sha256": receipt.receipt_sha256,
+            }
+        )
+        return 0
+    if args.command == "checkpoint-plan":
+        recommendation = plan_from_checkpoint(
+            args.measurement_log,
+            config_path=args.config,
+            checkpoint=validate_pf_checkpoint_v1(args.checkpoint_in),
+            request=validate_hybrid_planning_request(args.request),
+            output_path=args.output,
+        )
+        _print(
+            {
+                "status": "complete",
+                "recommendation_sha256": recommendation.recommendation_sha256,
+            }
+        )
         return 0
     if args.command == "validate-log":
         info = validate_measurement_log(args.run_dir)
@@ -186,39 +339,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0
-    if args.command == "verify-pins":
-        registry = args.registry.resolve()
-        pins = load_estimator_pins(registry)
-        roots = {
-            "particle_filter": args.pf_repository,
-            "surface_mle": args.mle_repository,
-        }
-        result: dict[str, object] = {}
-        for name, pin in pins.items():
-            root = roots[name]
-            if root is None:
-                if pin.local_path_hint is None:
-                    raise ValueError(f"No local path available for {name}.")
-                root = (registry.parent / pin.local_path_hint).resolve()
-            observed, dirty = verify_repository_revision(
-                root,
-                pin,
-                require_clean=True,
-                allowed_dirty_prefixes=tuple(args.allowed_dirty_prefix),
-            )
-            result[name] = {"revision": observed, "dirty_worktree": dirty}
-        _print({"status": "valid", "estimators": result})
-        return 0
-    if args.command == "conformance":
-        report = run_forward_response_conformance(
-            fixture_path=args.fixture,
-            pf_provider=_provider(args.pf_provider, name="particle_filter"),
-            mle_provider=_provider(args.mle_provider, name="surface_mle"),
-            output_directory=args.output_dir,
-            rtol=args.rtol,
-            atol=args.atol,
+    if args.command == "validate-spectral-snapshot":
+        info = validate_spectral_mle_snapshot_v3(args.snapshot)
+        _print(
+            {
+                "status": "valid",
+                "schema_version": 3,
+                "snapshot_id": info.payload["snapshot_id"],
+                "data_cutoff_step": info.cutoff_step,
+            }
         )
-        _print(report)
+        return 0
+    if args.command == "validate-pf-checkpoint":
+        info = validate_pf_checkpoint_v1(args.checkpoint)
+        _print(
+            {
+                "status": "valid",
+                "schema_version": 1,
+                "checkpoint_id": info.payload["checkpoint_id"],
+                "data_cutoff_step": info.cutoff_step,
+            }
+        )
+        return 0
+    if args.command == "validate-rj-directive":
+        info = validate_pf_rj_directive_v1(args.directive)
+        _print(
+            {
+                "status": "valid",
+                "schema_version": 1,
+                "directive_id": info.payload["directive_id"],
+            }
+        )
+        return 0
+    if args.command == "validate-rj-receipt":
+        info = validate_pf_rj_receipt_v1(args.receipt)
+        _print(
+            {
+                "status": "valid",
+                "schema_version": 1,
+                "receipt_id": info.payload["receipt_id"],
+            }
+        )
         return 0
     raise AssertionError(f"Unhandled command: {args.command}")
 

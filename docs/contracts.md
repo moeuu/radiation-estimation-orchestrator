@@ -1,13 +1,13 @@
-# Cross-repository contracts
+# Runtime and local-estimator contracts
 
 ## MeasurementLog
 
 Schema v1 is the archived projected-count contract. Schema v2 is the current common
-runtime contract produced by `Rotating-shield-particle-filter`. V2 carries raw integer
+contract produced by `Rotating-shield-simulation-runtime`. V2 carries raw integer
 full spectra and the complete producer-owned forward-model identity; it deliberately
 omits projected isotope counts, fitted count variances, and isotope covariance arrays.
-PF and spectral MLE therefore see the same recorded photons without maintaining two
-observation-generation implementations.
+The local PF and spectral MLE therefore see the same recorded photons without
+maintaining a second observation-generation implementation.
 
 Required files:
 
@@ -41,10 +41,12 @@ normalized configuration semantics.
 ### Forward model identity
 
 `forward_model_manifest.json` is validated by the schema matching its MeasurementLog.
-The v1 manifest explicitly carries the line attenuation table described below. The v2
-manifest binds the producer's complete full-spectrum generative contract and its
-file-backed assets; consumers verify that immutable identity instead of rebuilding
-simulation physics locally. In v1, in addition to the
+The v1 manifest explicitly carries the line attenuation table described below. The
+MeasurementLog-v2 reader accepts forward-manifest schema 2 and the runtime's current
+backwards-compatible schema 4. Schema 4 additionally binds the detector-response,
+shield-pose, obstacle-material, and transport-physics contracts by identifier and/or
+SHA-256. Consumers verify that immutable identity instead of rebuilding simulation
+physics locally. In v1, in addition to the
 six component identifiers, it requires `units.linear_attenuation="cm^-1"` and a
 `line_mu_by_isotope` table. Every line entry has exactly `energy_keV`, normalized
 `weight`, and line-specific `fe`/`pb` linear attenuation coefficients. Energies are
@@ -100,7 +102,7 @@ mean/covariance, strength mean, and posterior mass.
 `map_cardinality` must be the distribution argmax; ties deterministically select the
 smallest cardinality, matching the pure-PF contract.
 
-Provenance binds estimator commit, MeasurementLog schema/hash, input and resolved
+Provenance binds this repository commit, MeasurementLog schema/hash, input and resolved
 config hashes, seed, allowed PF planner belief sources (`pf_posterior`,
 `pf_tentative`, or the v2 `joint_pf_particles` source), and
 `batch_feedback_applied=false`.
@@ -113,7 +115,7 @@ sequence exactly. A matching length alone is insufficient.
 
 The bundle contains `mle_estimate.npz`, `mle_diagnostics.json`, and
 `hotspot_clusters.json`. NPZ-to-JSON hashes and mirrors are validated. Provenance binds
-count/spectral mode, estimator commit, log hash, input and resolved MLE config hashes,
+spectral mode, this repository commit, log hash, input and resolved MLE config hashes,
 `uses_pf_state=false`, `uses_pf_candidates=false`, and
 `candidate_domain=complete_surface_dictionary`.
 Both diagnostics and NPZ isotope order must equal the MeasurementLog isotope order;
@@ -170,3 +172,35 @@ reference/cutoff consistency, proposal/verification counts, once-only receipts, 
 ledger tail, and the final spectral cluster mirror. The result contract also records
 that v1 has no RJ birth/death, hard prune, direct MLE reweight, or live closed-loop
 planner actuation. See [`hybrid_v1.md`](hybrid_v1.md).
+
+## Hybrid-v2 contracts
+
+SpectralMLESnapshot v3 binds a converged spectral surface fit, predicted-spectrum
+artifact, complete-surface cluster geometry/covariance, and cold/warm lineage to one
+exact MeasurementLog-v2 prefix.
+
+FutureSpectralScoreRequest v1 partitions not-yet-scored post-cutoff steps.
+FutureSpectralCandidateScore v2 reports frozen full-versus-candidate-zero raw-spectrum
+LLRs in station/height/shield-program blocks. Validation rejects pre-cutoff rows,
+overlapping blocks, missing requested steps, refitting, and repeated scoring. The
+shield-program identity uses an explicit metadata ID when uniformly available and
+otherwise hashes the ordered observed Fe/Pb orientation sequence; mixed explicit and
+implicit identity inside one station/height block is invalid.
+
+PFCheckpoint v1 binds the locally owned PF state artifact and RNG state to an exact
+prefix. Generic controller code transports it by hash; only the local PF/RJ/planning
+implementation may interpret its particle arrays.
+
+The exact-RJ directive binds two times: `proposal_data_cutoff_*` identifies the older
+spectral snapshot, while `data_cutoff_*` identifies the current PF target after future
+verification. It also binds current log, covered records, checkpoint, and input PF
+state hashes. The receipt exposes complete target/proposal/Jacobian terms; validation
+recomputes acceptance, cardinality, state transition, candidate eligibility, transform
+identity, and output-checkpoint state identity.
+
+The live runtime protocol is stricter than a recommendation contract. Candidate sets
+carry per-candidate path hashes plus aggregate collision/reachability/path attestation.
+Action decisions and receipts must agree on realized XYZ, shield pair, station marker,
+and exact selected path. The mission ledger durably orders proposed, realized,
+appended, and estimator-updated events and repairs a state file lagging an fsynced
+ledger after a crash.

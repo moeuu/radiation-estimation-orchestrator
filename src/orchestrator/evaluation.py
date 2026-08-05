@@ -5,13 +5,16 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
-from .adapters import AdapterExecution
 from .contracts import MeasurementLogInfo, MLEResultInfo, PFResultInfo, validate_truth
 from .hashing import sha256_file
+
+if TYPE_CHECKING:
+    from .adapters import AdapterExecution
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,7 +461,7 @@ def evaluate_benchmark(
     measurement_log: MeasurementLogInfo,
     truth_path: str | Path,
     pf_result: PFResultInfo,
-    mle_count_result: MLEResultInfo,
+    mle_count_result: MLEResultInfo | None,
     mle_spectral_result: MLEResultInfo,
     executions: dict[str, AdapterExecution],
 ) -> dict[str, object]:
@@ -470,29 +473,70 @@ def evaluate_benchmark(
     radius = float(truth_payload["match_radius_m"])
     ceiling_z = float(truth_payload["ceiling_z_m"])
     pf_estimates = pf_sources(pf_result)
-    count_estimates = mle_cluster_sources(mle_count_result)
     spectral_estimates = mle_cluster_sources(mle_spectral_result)
+    estimator_metrics: dict[str, object] = {
+        "pf_strict": {
+            "point_source": point_source_metrics(
+                truth, pf_estimates, radius_m=radius, ceiling_z_m=ceiling_z
+            )
+        },
+        "mle_spectral": {
+            "point_source": point_source_metrics(
+                truth, spectral_estimates, radius_m=radius, ceiling_z_m=ceiling_z
+            ),
+            "surface_mle": surface_mle_metrics(mle_spectral_result, truth, radius_m=radius),
+        },
+    }
+    if mle_count_result is not None:
+        count_estimates = mle_cluster_sources(mle_count_result)
+        estimator_metrics["mle_count"] = {
+            "point_source": point_source_metrics(
+                truth, count_estimates, radius_m=radius, ceiling_z_m=ceiling_z
+            ),
+            "surface_mle": surface_mle_metrics(mle_count_result, truth, radius_m=radius),
+        }
     return {
         "schema_version": 1,
         "truth_sha256": sha256_file(truth_path),
         "operational": operational_metrics(measurement_log, executions),
+        "estimators": estimator_metrics,
+    }
+
+
+def evaluate_spectral_mission(
+    *,
+    measurement_log: MeasurementLogInfo,
+    truth_path: str | Path,
+    mle_spectral_result: MLEResultInfo,
+    estimator_runtime_s: float | None = None,
+) -> dict[str, object]:
+    """Truth-gated metrics for a completed fixed-budget hybrid mission."""
+    truth_payload = validate_truth(
+        truth_path, expected_run_id=str(measurement_log.manifest["run_id"])
+    )
+    truth = _truth_sources(truth_payload)
+    radius = float(truth_payload["match_radius_m"])
+    ceiling_z = float(truth_payload["ceiling_z_m"])
+    estimates = mle_cluster_sources(mle_spectral_result)
+    operational = operational_metrics(measurement_log, {})
+    operational["estimators"] = {
+        "hybrid_controller_total": {
+            "runtime_s": estimator_runtime_s,
+            "peak_memory_bytes": None,
+        }
+    }
+    return {
+        "schema_version": 1,
+        "truth_sha256": sha256_file(truth_path),
+        "operational": operational,
         "estimators": {
-            "pf_strict": {
+            "hybrid_final_mle_spectral": {
                 "point_source": point_source_metrics(
-                    truth, pf_estimates, radius_m=radius, ceiling_z_m=ceiling_z
-                )
-            },
-            "mle_count": {
-                "point_source": point_source_metrics(
-                    truth, count_estimates, radius_m=radius, ceiling_z_m=ceiling_z
+                    truth, estimates, radius_m=radius, ceiling_z_m=ceiling_z
                 ),
-                "surface_mle": surface_mle_metrics(mle_count_result, truth, radius_m=radius),
-            },
-            "mle_spectral": {
-                "point_source": point_source_metrics(
-                    truth, spectral_estimates, radius_m=radius, ceiling_z_m=ceiling_z
+                "surface_mle": surface_mle_metrics(
+                    mle_spectral_result, truth, radius_m=radius
                 ),
-                "surface_mle": surface_mle_metrics(mle_spectral_result, truth, radius_m=radius),
-            },
+            }
         },
     }

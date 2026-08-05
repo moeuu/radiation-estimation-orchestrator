@@ -5,10 +5,14 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import zipfile
 from collections.abc import Iterable, Mapping
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+import numpy as np
 
 from .errors import ContractError
 
@@ -58,6 +62,20 @@ def canonical_json_bytes(payload: object) -> bytes:
     return (text + "\n").encode("utf-8")
 
 
+def canonical_json_line(payload: object) -> str:
+    """Serialize one strict, deterministic JSON object on exactly one line."""
+    try:
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ContractError(f"Payload is not strict JSON data: {exc}") from exc
+
+
 def write_json_atomic(path: str | Path, payload: object, *, overwrite: bool = False) -> Path:
     """Atomically write canonical JSON without exposing a partial manifest."""
     target = Path(path)
@@ -73,6 +91,69 @@ def write_json_atomic(path: str | Path, payload: object, *, overwrite: bool = Fa
             handle.write(canonical_json_bytes(payload))
             handle.flush()
             os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def write_json_idempotent(path: str | Path, payload: object) -> Path:
+    """Create deterministic JSON once, accepting only byte-identical retries."""
+    target = Path(path)
+    encoded = canonical_json_bytes(payload)
+    if target.exists():
+        if target.is_symlink() or not target.is_file():
+            raise ContractError(f"Existing deterministic JSON path is invalid: {target}")
+        if target.read_bytes() != encoded:
+            raise ContractError(
+                f"Deterministic retry payload differs from existing file: {target}"
+            )
+        return target
+    return write_json_atomic(target, payload)
+
+
+def write_npz_atomic(
+    path: str | Path,
+    arrays: Mapping[str, np.ndarray],
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Write a deterministic, pickle-free NPZ archive atomically.
+
+    NumPy's convenience writer embeds current ZIP timestamps, which makes
+    checkpoint and result hashes change across otherwise identical replays.
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and not overwrite:
+        raise FileExistsError(f"Refusing to replace existing file: {target}")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as raw:
+            with zipfile.ZipFile(raw, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for name in sorted(arrays):
+                    if not name or "/" in name or "\\" in name:
+                        raise ContractError(f"Invalid NPZ array name: {name!r}")
+                    buffer = BytesIO()
+                    np.lib.format.write_array(
+                        buffer,
+                        np.asarray(arrays[name]),
+                        version=(2, 0),
+                        allow_pickle=False,
+                    )
+                    entry = zipfile.ZipInfo(
+                        f"{name}.npy", date_time=(1980, 1, 1, 0, 0, 0)
+                    )
+                    entry.compress_type = zipfile.ZIP_DEFLATED
+                    entry.create_system = 3
+                    entry.external_attr = 0o600 << 16
+                    archive.writestr(entry, buffer.getvalue())
+            raw.flush()
+            os.fsync(raw.fileno())
         os.replace(temporary, target)
     except BaseException:
         temporary.unlink(missing_ok=True)
@@ -154,6 +235,8 @@ def json_safe(value: Any) -> object:
         return value
     if isinstance(value, Path):
         return value.as_posix()
+    if isinstance(value, np.ndarray):
+        return [json_safe(child) for child in value.tolist()]
     if isinstance(value, Mapping):
         return {str(key): json_safe(child) for key, child in value.items()}
     if isinstance(value, (list, tuple)):

@@ -232,6 +232,7 @@ def build_hybrid_result(
     verification_queue_sha256: str,
     verification_counts: Mapping[str, int],
     orchestrator_commit: str,
+    orchestrator_source_provenance: Mapping[str, object] | None = None,
     hybrid_config_sha256: str,
     pin_registry_sha256: str,
     execution_evidence_sha256: str,
@@ -315,7 +316,7 @@ def build_hybrid_result(
         "planning_recommendations": planning_refs,
     }
     result_id = f"hybrid-result-{sha256_bytes(canonical_json_bytes(identity))[:20]}"
-    return {
+    result = {
         "schema_version": 1,
         "hybrid_result_id": result_id,
         "hybrid_run_id": hybrid_run_id,
@@ -437,6 +438,14 @@ def build_hybrid_result(
             "execution_evidence_sha256": execution_evidence_sha256,
         },
     }
+    if orchestrator_source_provenance is not None:
+        source_provenance = dict(orchestrator_source_provenance)
+        if source_provenance.get("commit") != orchestrator_commit:
+            raise ContractError("Orchestrator source provenance commit does not match the report.")
+        provenance_payload = result["provenance"]
+        assert isinstance(provenance_payload, dict)
+        provenance_payload["orchestrator_source"] = source_provenance
+    return result
 
 
 def write_hybrid_result_bundle(

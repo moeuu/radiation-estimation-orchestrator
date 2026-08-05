@@ -1,4 +1,9 @@
-# Forward-model conformance
+# Forward-model conformance (archived external-provider protocol)
+
+This protocol was used while PF and MLE lived in sibling repositories. It remains as
+an old-artifact comparison utility, not as a production dependency. Active PF and MLE
+now call the same authenticated runtime forward model from this repository, and the
+runtime model identity is validated when the estimator context is created.
 
 The two estimators must independently implement a CLI accepting the neutral axes file
 and emitting an NPZ with exactly:

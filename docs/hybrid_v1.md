@@ -1,4 +1,9 @@
-# Causal PF+MLE hybrid v1
+# Causal PF+MLE hybrid v1 (archived)
+
+This document describes the historical projected-count/external-estimator milestone.
+It is retained only to interpret old artifacts. The production CLI no longer exposes
+this execution path; hybrid v2 owns local PF/MLE/RJ/planning and depends only on the
+shared runtime.
 
 Hybrid v1 adds a separately versioned orchestration path without changing either pure
 baseline. The existing same-log benchmark remains the reference comparison path.

@@ -3,51 +3,65 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-FORBIDDEN_IMPORT_PREFIXES = (
-    "pf",
-    "three_d_estimation",
-    "measurement.continuous_kernels",
-    "runtime.measurement_log",
-)
+SIBLING_ESTIMATOR_IMPORTS = ("pf", "three_d_estimation")
+RUNTIME_PHYSICS_IMPORTS = ("measurement", "spectrum", "runtime")
+RUNTIME_BOUNDARY_FILES = {
+    "orchestrator/acquisition.py",
+    "orchestrator/estimators/context.py",
+    "orchestrator/estimators/forward.py",
+}
 
 
-def test_orchestrator_imports_no_estimator_or_physics_packages(repository_root: Path) -> None:
-    for path in (repository_root / "src" / "orchestrator").rglob("*.py"):
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            modules: list[str] = []
-            if isinstance(node, ast.Import):
-                modules.extend(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                modules.append(node.module)
+def _imports(path: Path) -> tuple[tuple[str, bool], ...]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    modules: list[tuple[str, bool]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend((alias.name, True) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            modules.append((node.module, node.level == 0))
+    return tuple(modules)
+
+
+def test_active_code_has_no_sibling_estimator_dependency(repository_root: Path) -> None:
+    source = repository_root / "src"
+    for path in (source / "orchestrator").rglob("*.py"):
+        for module, absolute in _imports(path):
+            if not absolute:
+                continue
             assert not any(
                 module == prefix or module.startswith(prefix + ".")
-                for module in modules
-                for prefix in FORBIDDEN_IMPORT_PREFIXES
-            ), f"forbidden estimator import in {path}: {modules}"
+                for prefix in SIBLING_ESTIMATOR_IMPORTS
+            ), f"sibling estimator import in {path}: {module}"
 
 
-def test_repository_contains_no_estimator_or_physics_source_copy(repository_root: Path) -> None:
-    forbidden_names = {
-        "particle_filter.py",
-        "continuous_kernels.py",
-        "surface_patches.py",
-        "response_builder.py",
-        "spectral_response_builder.py",
-        "estimator.py",
-    }
-    source_files = list((repository_root / "src").rglob("*.py"))
-    assert not forbidden_names.intersection(path.name for path in source_files)
-    source_text = "\n".join(path.read_text() for path in source_files)
-    for signature in (
-        "class ParticleFilter",
-        "class SurfaceMLEEstimator",
-        "class ContinuousKernel",
-    ):
-        assert signature not in source_text
-    ignored_roots = {".git", ".venv"}
-    assert not any(
-        path.is_symlink()
-        for path in repository_root.rglob("*")
-        if path.relative_to(repository_root).parts[0] not in ignored_roots
-    )
+def test_shared_runtime_physics_enters_through_narrow_boundary(
+    repository_root: Path,
+) -> None:
+    source = repository_root / "src"
+    for path in (source / "orchestrator").rglob("*.py"):
+        relative = path.relative_to(source).as_posix()
+        runtime_imports = [
+            module
+            for module, absolute in _imports(path)
+            if absolute
+            if any(
+                module == prefix or module.startswith(prefix + ".")
+                for prefix in RUNTIME_PHYSICS_IMPORTS
+            )
+        ]
+        if runtime_imports:
+            assert relative in RUNTIME_BOUNDARY_FILES, (
+                f"runtime physics import escaped the owned boundary in {path}: "
+                f"{runtime_imports}"
+            )
+
+
+def test_repository_owns_estimators_but_not_runtime_physics(repository_root: Path) -> None:
+    estimator_root = repository_root / "src" / "orchestrator" / "estimators"
+    assert (estimator_root / "pf.py").is_file()
+    assert (estimator_root / "mle.py").is_file()
+    assert (estimator_root / "rj.py").is_file()
+    assert not (repository_root / "src" / "measurement").exists()
+    assert not (repository_root / "src" / "spectrum").exists()
+    assert not (repository_root / "src" / "runtime").exists()

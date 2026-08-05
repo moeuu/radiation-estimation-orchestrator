@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moeuu.github.io/rotating-shield/contracts/future-spectral-score-request-v1.schema.json",
+  "title": "Incremental future spectral score request v1",
+  "type": "object",
+  "required": [
+    "schema_version", "request_id", "snapshot_id", "snapshot_sha256",
+    "snapshot_data_cutoff_step", "current_measurement_log_sha256",
+    "requested_future_step_ids", "previously_scored_step_ids", "grouping", "safety"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "request_id": {"$ref": "#/$defs/id"},
+    "snapshot_id": {"$ref": "#/$defs/id"},
+    "snapshot_sha256": {"$ref": "#/$defs/sha256"},
+    "snapshot_data_cutoff_step": {"type": "integer", "minimum": 0},
+    "current_measurement_log_sha256": {"$ref": "#/$defs/sha256"},
+    "requested_future_step_ids": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "previously_scored_step_ids": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "grouping": {
+      "type": "object",
+      "required": ["station", "height", "shield_program", "height_tolerance_m"],
+      "properties": {
+        "station": {"const": "station_id"},
+        "height": {"const": "detector_z_tolerance_group"},
+        "shield_program": {
+          "enum": ["metadata_shield_program_id", "metadata_or_fe_pb_sequence"]
+        },
+        "height_tolerance_m": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": ["future_only", "snapshot_frozen", "refit_allowed", "steps_once_only"],
+      "properties": {
+        "future_only": {"const": true},
+        "snapshot_frozen": {"const": true},
+        "refit_allowed": {"const": false},
+        "steps_once_only": {"const": true}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

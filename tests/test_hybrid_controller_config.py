@@ -13,6 +13,9 @@ from orchestrator.hybrid.run_config import HybridRunConfig
 
 
 def _payload(repository_root: Path, tmp_path: Path) -> dict[str, object]:
+    pin_registry = tmp_path / "archived-v1-pins.json"
+    if not pin_registry.exists():
+        pin_registry.write_text("{}\n", encoding="utf-8")
     return {
         "schema_version": 1,
         "hybrid_run_id": "pytest-hybrid-v1",
@@ -20,7 +23,7 @@ def _payload(repository_root: Path, tmp_path: Path) -> dict[str, object]:
             repository_root / "fixtures" / "shared_small_run" / "measurement_log"
         ),
         "output_directory": str(tmp_path / "hybrid-output"),
-        "pin_registry": str(repository_root / "PINNED_ESTIMATORS.json"),
+        "pin_registry": str(pin_registry),
         "pf_profile": "pf_strict",
         "random_seed": 12,
         "relocation_seed": 34,
@@ -104,16 +107,6 @@ def test_controller_boundary_preflight_requires_exact_full_schedule(
     )
     with pytest.raises(DataReuseError, match="exactly cover"):
         HybridController._validate_explicit_boundaries(log, incomplete)
-
-
-def test_shared_hybrid_config_enables_one_attested_planning_boundary(
-    repository_root: Path,
-) -> None:
-    config = HybridRunConfig.load(repository_root / "configs" / "hybrid" / "shared_small_run.json")
-    assert tuple(config.planning_requests) == (5,)
-    request = config.planning_requests[5]
-    assert request["candidate_attestation"]["collision_checked"] is True  # type: ignore[index]
-    assert request["candidate_attestation"]["reachability_filtered"] is True  # type: ignore[index]
 
 
 def test_hybrid_config_rejects_controller_owned_planner_modes(

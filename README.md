@@ -1,215 +1,152 @@
 # Radiation Estimation Orchestrator
 
-This repository attaches estimator processes to one shared acquisition boundary.
-`Rotating-shield-simulation-runtime` is the sole production owner of Geant4,
-environment construction, detector/shield physics, action execution, raw observation
-generation, and MeasurementLog v2 serialization. The pure PF, standalone MLE, and
-PF+MLE controller consume its finalized MeasurementLog; simulator source is not
-copied into any estimator or orchestration repository.
+This repository is the complete inference implementation for rotating-shield radiation
+estimation. It owns:
 
-The orchestrator can request acquisition without owning its implementation:
+- the strict sequential full-spectrum particle filter;
+- the all-surface spectral MLE;
+- causal checkpoint planning;
+- future-only spectral candidate scoring;
+- paired birth/death exact reversible-jump moves;
+- offline PF+MLE replay and resumable closed-loop hybrid execution;
+- estimator contracts, benchmarking, evaluation, and provenance.
 
-```bash
-uv run radiation-estimation-orchestrator acquire --plan /path/to/private-plan.json
-```
-
-The plan may contain source truth for the simulator, but the published MeasurementLog
-does not. Estimator subprocesses receive only that truth-free log.
-
-The repository exposes two controlled paths. The original same-log benchmark
-remains unchanged, and a separate causal offline hybrid replay adds prefix MLE
-proposals without changing either pure estimator entry point:
+The only external research-code dependency is
+`Rotating-shield-simulation-runtime`. That package owns environment and obstacle
+geometry, detector/shield/transport/spectral physics, observation generation,
+collision/reachability checks, action execution, and MeasurementLog v2 production.
+This repository never imports or invokes the sibling PF or MLE repositories.
 
 ```text
-truth-free MeasurementLog
-    ├── pure PF sequential replay
-    ├── count-domain surface MLE replay (v1 archive only)
-    └── spectral-domain surface MLE replay
-             ↓
-    validate contracts → open separate truth → common evaluation → manifest
-
-station-complete prefix 1:t
-    ├── pure PF replay and frozen predictions
-    └── count MLE → fixed-K MH position proposal
-                         ↓
-              future-only verification/quarantine
-                         ↓
-              non-actuating DSS-PP recommendation
-
-complete log → cold spectral MLE → authoritative hybrid report
+shared runtime
+  ├─ immutable physical forward model
+  ├─ safe 3-D action candidates and execution receipts
+  └─ truth-free MeasurementLog v2
+                 │
+                 ▼
+this repository
+  ├─ strict PF ────────────────┐
+  ├─ spectral surface MLE      │
+  ├─ future spectral scoring   ├─ checkpoint planner
+  ├─ exact paired RJ kernel    │
+  └─ causal hybrid controller ─┘
+                 │
+                 ▼
+      final cold spectral MLE report
 ```
 
-Estimator and physics source is not copied here. Every estimator is invoked through a
-subprocess CLI at the exact commit in [`PINNED_ESTIMATORS.json`](PINNED_ESTIMATORS.json).
-The orchestrator records commands, commits, input/config/output hashes, stdout/stderr
-hashes, runtime, peak memory, and the complete artifact inventory.
+## Implemented execution paths
 
-## Current scope
+Pure same-log comparison runs the local strict PF and local spectral MLE on the
+same finalized MeasurementLog. Truth remains outside the log and is opened only after
+both result bundles validate.
 
-Implemented:
+Offline hybrid replay processes station-complete prefixes. It checkpoints the PF,
+runs prefix spectral MLE when scheduled, scores candidate regions only on later raw
+spectra, verifies or quarantines them by independent station/height/shield blocks,
+and optionally applies a PF-owned exact RJ transition.
 
-- canonical, filesystem-aware MeasurementLog v1 and raw full-spectrum v2 validation;
-- pure PFResult and standalone MLEResult validation for v1/v2 log provenance;
-- exact-prefix MLESnapshot v2 with cutoff, covered-record, warm-start, and artifact
-  lineage;
-- pinned Git revision checks that reject dirty code while inventorying explicitly
-  allowed result/cache paths;
-- a non-bypassable production adapter policy: exact revision verification and clean
-  checkout checks are mandatory, command overrides are forbidden, and dirty-prefix
-  configuration may only narrow the built-in artifact allowlist;
-- safe shell-free PF and MLE subprocess adapters;
-- the fixed benchmark pipeline (PF, count MLE, spectral MLE);
-- all requested point-source, operational, and surface-MLE metrics;
-- truth isolation: truth is outside the log and first opened after all three result
-  contracts validate;
-- independent PF/MLE forward-response conformance at `rtol=1e-9`, `atol=1e-12`,
-  with exact 40-character commit pins, mandatory clean-checkout verification, and
-  command/config/stdout/stderr/artifact provenance;
-- exact cross-repository line-model identity (energy, normalized weight, and
-  line-specific Fe/Pb attenuation) bound into the forward manifest;
-- a deterministic 12-record, three-isotope, multi-height contract smoke fixture.
-- station-complete periodic/triggered count MLE with initialization-only warm starts;
-- MLE-shaped, fixed-cardinality, target-preserving PF position relocation using full
-  PF target and forward/reverse proposal correction;
-- future-only frozen-model log-predictive-ratio verification and non-destructive
-  quarantine;
-- planner-only pending/verified external modes and a collision/reachability-attested,
-  non-actuating DSS-PP XYZ/height/shield-program recommendation;
-- a hash-chained observation-use ledger, aggregate per-candidate MH receipts, and
-  execution evidence;
-- independent cold full-log count diagnostics and converged cold spectral MLE as the
-  authoritative hybrid result.
+Live hybrid execution is a durable protocol-v2 state machine:
 
-Deliberately not implemented are reversible-jump birth/death, MLE-directed hard
-pruning, direct MLE-objective reweighting, or live robot actuation. See
-[`docs/hybrid_v1.md`](docs/hybrid_v1.md) and
-[`docs/future_hybrid.md`](docs/future_hybrid.md).
+```text
+ready -> action_proposed -> action_realized -> observation_appended
+      -> estimators_updated -> ready ... -> complete
+```
 
-Hybrid v1 intentionally accepts only archived MeasurementLog v1. It does not project
-raw v2 spectra back into the old count contract. Current v2 PF and spectral-MLE replay
-are connected; a causal raw-spectrum PF+MLE loop requires a separately versioned
-spectral-prefix snapshot and future-score contract.
+The runtime authorizes and executes an action exactly once. The orchestrator binds the
+decision to a PF checkpoint, the exact observation prefix, and the runtime-attested
+candidate/path hashes. Restarting after a crash recovers receipts and completed local
+estimator operations rather than repeating physical actions.
+
+The authoritative hybrid result is a cold, converged, full-log spectral surface MLE.
+MLE objective values are never added to PF weights, and MLE-directed hard pruning is
+forbidden.
 
 ## Install and verify
 
-Python 3.12+ and `uv` are required.
+Python 3.12+ and `uv` are required. The sibling runtime checkout is configured only as
+the package source in `pyproject.toml` and pinned by `PINNED_RUNTIME.json`.
 
 ```bash
-uv sync
-uv run pytest
+uv sync --locked
+uv run pytest -q
 uv run ruff check .
-uv run radiation-estimation-orchestrator validate-log \
-  --run-dir fixtures/shared_small_run/measurement_log
+uv run radiation-estimation-orchestrator --help
 ```
 
-## Run the shared benchmark
+## Commands
 
-The estimator checkouts must be at the pinned commits. The default config resolves the
-local sibling paths from the configured registry. `PINNED_ESTIMATORS.json` tracks the
-current raw-v2 PF and spectral-MLE boundary. The bundled v1 smoke benchmark and hybrid
-replay explicitly use `PINNED_ESTIMATORS_V1_ARCHIVE.json`; this avoids pretending that
-the old count-based hybrid accepts raw spectra.
-
-The bundled `shared_small_run` is for contract, isolation, replay, and artifact-pipeline
-testing. Its isotope counts are hand-authored and its spectra only distribute those
-counts over the production line basis; they were not generated from the accompanying
-truth through the production transport model. Do not interpret accuracy metrics from
-this smoke fixture scientifically. Use a separately provenance-bound real-observation
-or Geant4 MeasurementLog for scientific estimator comparisons.
+Acquire a truth-free log through the shared runtime:
 
 ```bash
-uv run radiation-estimation-orchestrator verify-pins \
-  --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
-uv run radiation-estimation-orchestrator benchmark \
-  --config configs/benchmark/shared_small_run.json
+uv run radiation-estimation-orchestrator acquire --plan PRIVATE_PLAN.json
 ```
 
-The output directory contains:
-
-```text
-benchmark_manifest.json
-benchmark_manifest.sha256
-metrics.json
-executions/{pf_strict,mle_count,mle_spectral}/{stdout.log,stderr.log}
-results/pf_strict/{pf_posterior.json,pf_trace.jsonl,pf_diagnostics.json}
-results/mle_count/{mle_estimate.npz,mle_diagnostics.json,hotspot_clusters.json}
-results/mle_spectral/{mle_estimate.npz,mle_diagnostics.json,hotspot_clusters.json}
-```
-
-Outputs and staging directories are refuse-replace. A failed benchmark removes its
-private staging directory and never publishes a partial manifest.
-
-## Run causal hybrid replay
-
-The shared hybrid smoke config invokes the pinned PF and MLE checkouts through their
-real subprocess CLIs. Its planning request uses poses already realized in the fixture;
-the environment artifact and ordered candidate set are hash-attested. The result is an
-algorithmic recommendation only and explicitly cannot authorize robot actuation.
+Run local estimators directly:
 
 ```bash
-uv run radiation-estimation-orchestrator verify-pins \
-  --registry PINNED_ESTIMATORS_V1_ARCHIVE.json
-uv run radiation-estimation-orchestrator hybrid-replay \
-  --config configs/hybrid/shared_small_run.json
+uv run radiation-estimation-orchestrator pf-checkpoint \
+  --measurement-log RUN/measurement-log \
+  --config configs/estimators/pf_strict_shared_small.json \
+  --output-dir RESULTS/pf --seed 7
+
+uv run radiation-estimation-orchestrator spectral-mle \
+  --measurement-log RUN/measurement-log \
+  --config configs/estimators/mle_spectral_shared_small.json \
+  --output-dir RESULTS/mle
 ```
 
-The output includes exact-prefix logs, snapshots, directives, aggregate PF receipts,
-future candidate scores, the verification queue, planning request/recommendation,
-execution evidence, final cold MLE bundles, `hybrid_result.json`, and the run manifest.
+The `pf-checkpoint` command accepts `--checkpoint-in` for prefix continuation. Related
+standalone commands are:
 
-## Contracts
+- `checkpoint-plan`: rank runtime-attested XYZ/shield actions without changing PF state;
+- `future-spectral-score`: score frozen MLE candidates on post-cutoff spectra;
+- `exact-rj`: apply one target-corrected birth/death transition to a PF checkpoint.
 
-The public JSON Schemas are packaged under [`src/orchestrator/contracts`](src/orchestrator/contracts).
-Validation also covers NPZ dtype/shape/masks, causal row order, finite values,
-quaternion normalization, covariance symmetry/PSD, metadata alignment, content hashes,
-line-table identity, deterministic PF cardinality argmax, MLE scalar/patch/cluster
-consistency, and result artifact mirrors—properties JSON Schema alone cannot prove.
-
-MeasurementLog truth is deliberately absent. The shared fixture stores it at
-[`fixtures/shared_small_run/evaluation/truth.json`](fixtures/shared_small_run/evaluation/truth.json),
-outside the estimator input directory.
-The validator recursively rejects realized-truth/source-layout pointers in runtime,
-environment, run, and observation metadata, and `source_layout_path` is required to be
-null. Source-rate and source-extent model semantics remain valid estimator inputs.
-
-See [`docs/contracts.md`](docs/contracts.md) for exact arrays, hashing, and provenance.
-
-## Forward-response conformance
-
-[`fixtures/forward_response_conformance.json`](fixtures/forward_response_conformance.json)
-covers Cs-137, Co-60, Eu-154, three detector poses, all 64 Fe/Pb orientation pairs,
-floor/wall/ceiling/obstacle-top sources, and no-obstacle/one-box environments. Each
-estimator owns a CLI that emits the neutral `case_ids` + `unit_response` NPZ contract.
-The orchestrator compares the independent outputs; it contains no response physics.
-
-See [`docs/forward_model_conformance.md`](docs/forward_model_conformance.md).
-
-Run both production providers from the orchestrator root with:
+Run the versioned hybrid paths:
 
 ```bash
-uv run radiation-estimation-orchestrator conformance \
-  --fixture fixtures/forward_response_conformance.json \
-  --pf-provider configs/conformance/pf_production.json \
-  --mle-provider configs/conformance/mle_production.json \
-  --output-dir conformance-results/production-v1
+uv run radiation-estimation-orchestrator hybrid-v2-replay --config OFFLINE.json
+uv run radiation-estimation-orchestrator hybrid-v2-live \
+  --config configs/hybrid_v2/live_example.json
 ```
 
-The provider JSON files pin the same estimator commits as
-[`PINNED_ESTIMATORS.json`](PINNED_ESTIMATORS.json). Update both locations together
-when advancing an estimator baseline. Production conformance rejects a missing,
-abbreviated, non-commit, mismatched, or dirty provider checkout before execution.
+After a live mission completes, evaluation may open the separate truth artifact:
 
-## Repository map
-
-```text
-src/orchestrator/
-  adapters/       pinned subprocess boundaries
-  contracts/      JSON Schemas and filesystem/NPZ validators
-  benchmark.py    fixed same-log execution pipeline
-  evaluation.py   truth-gated common metrics
-  conformance.py  independent forward-response comparison
-  manifests.py    provenance and artifact hashing
-configs/          benchmark, estimator, and scenario definitions
-fixtures/         truth-free shared log, separate truth, conformance axes
-tests/            contracts, pins, same-log run, isolation, metrics, conformance
+```bash
+uv run radiation-estimation-orchestrator evaluate-live \
+  --manifest RESULTS/live_hybrid_manifest.json \
+  --truth EVALUATION_TRUTH.json \
+  --output RESULTS/evaluation_metrics.json
 ```
+
+## Statistical and causal boundaries
+
+- The PF consumes raw spectra sequentially in complete station blocks. Its result is
+  built only from the particle posterior; it does not call the MLE.
+- The MLE always optimizes the complete runtime surface dictionary. It cannot accept PF
+  particles or PF-selected candidate positions.
+- A prefix MLE snapshot identifies its exact cutoff and covered-record hash.
+- Candidate verification uses only steps strictly after that cutoff, once each.
+- Exact RJ uses the current processed-prefix PF target, paired forward/reverse proposal
+  densities, dimension matching, and an explicit acceptance receipt.
+- Planning evaluates PF particles plus non-quarantined MLE hypotheses but never mutates
+  the checkpoint.
+- Truth is not a valid inference input.
+
+See [architecture](docs/architecture.md), [hybrid v2](docs/hybrid_v2.md),
+[contracts](docs/contracts.md), and the [evaluation protocol](docs/evaluation_protocol.md).
+
+## Current limitations
+
+- The spectral MLE materializes its response columns in memory; large patch/bin/action
+  studies will need a matrix-free or disk-backed operator.
+- Surface charts are those published by the shared runtime (currently room and box
+  surfaces); arbitrary mesh/volume source dictionaries are not yet implemented here.
+- Exact RJ currently changes source cardinality one particle and one source at a time.
+- Verification thresholds require calibration on independent station-block holdouts and
+  new Geant4/real-system runs; smoke fixtures are contract tests, not accuracy evidence.
+
+Historical MeasurementLog-v1 schemas and adapter modules remain readable for artifact
+validation only. They are not exposed by the production CLI and are not part of the
+runtime-only inference architecture.

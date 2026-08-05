@@ -1,4 +1,4 @@
-"""Subprocess-only adapters for pinned estimator repositories."""
+"""Archived schema-v1 subprocess adapters for historical artifact replay."""
 
 from .base import AdapterExecution, AdapterSettings, EstimatorPin, load_estimator_pins
 from .future_score_cli import DEFAULT_FUTURE_SCORE_COMMAND, FutureScoreCLIAdapter
